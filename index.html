@@ -1,0 +1,1931 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Thermal Tracking · 熱感追蹤實驗台</title>
+<meta name="description" content="Turn any video or photo into a thermal-camera look — false color, trails, glow, and live blob tracking. Runs entirely in your browser.">
+<meta name="theme-color" content="#0b14b8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;600&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout：整頁是一面飽和色的「牆」，輸出畫面像一張海報貼在牆上。左欄是一條直線：上面大標題，下面骰子、素材、輸出，底部對齊海報；進階模式右邊多一張控制卡；換配色，牆就跟著換色。手機改成標題 → 海報 → 操作上下堆疊。 */
+@property --field{syntax:'<color>';inherits:true;initial-value:#1322d8}
+@property --deep{syntax:'<color>';inherits:true;initial-value:#0a1192}
+:root{
+  color-scheme:dark;
+  --field:#1322d8;            /* 牆色：跟著目前配色 */
+  --deep:#0a1192;             /* 牆的暗角 */
+  --pop:#ff4d8d;              /* 強調：錄影、錯誤、焦點、選中的小點 */
+  --ink:#ffffff;
+  --ink-2:rgba(255,255,255,.72);
+  --ink-3:rgba(255,255,255,.46);
+  --line:rgba(255,255,255,.18);
+  --line-2:rgba(255,255,255,.34);
+  --card:rgba(6,8,30,.46);    /* 控制卡 */
+  --card-solid:#0d1250;
+  --well:rgba(255,255,255,.07);
+  --dot:rgba(255,255,255,.16);
+  --on-ink:#0d1250;           /* 反白元件上的文字 */
+  /* 字體只剩三套：英文名稱和標題用 Unbounded，標籤和數字用等寬大寫，中文一律黑體 */
+  --tech:"Unbounded","Futura","Jost",system-ui,sans-serif;   /* 大標題 */
+  --sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --pw:372px;
+  --cap:30px;                 /* 海報下方說明列的高度 */
+  --edge:14px;
+  --r:0;
+  --field-t:.7s;
+}
+:root[data-pal="sixfold"]{--field:#1322d8;--deep:#0a1192;--pop:#ff4d8d;--card:rgba(6,8,40,.46);--card-solid:#0c1152;--on-ink:#0c1152}
+:root[data-pal="bloom"]{--field:#5a2ee0;--deep:#2f139c;--pop:#ffb45c;--card:rgba(20,6,50,.46);--card-solid:#24104e;--on-ink:#24104e}
+:root[data-pal="iron"]{--field:#e63d1b;--deep:#9c1f06;--pop:#ffe14d;--card:rgba(50,10,4,.46);--card-solid:#3a1208;--on-ink:#3a1208}
+:root[data-pal="white"]{--field:#ece7db;--deep:#d9d2c1;--pop:#e63d1b;--ink:#17150f;--ink-2:rgba(23,21,15,.72);--ink-3:rgba(23,21,15,.5);
+  --line:rgba(23,21,15,.16);--line-2:rgba(23,21,15,.3);--card:rgba(255,253,247,.58);--card-solid:#fffdf6;--well:rgba(23,21,15,.06);--dot:rgba(23,21,15,.16);--on-ink:#fffdf6}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+html{background:var(--deep)}
+body{margin:0;background:var(--field);color:var(--ink);font:400 15px/1.7 var(--sans);-webkit-font-smoothing:antialiased;overflow:hidden;transition:background var(--field-t)}
+a{color:inherit}
+button,label.btn{font-family:inherit}
+
+/* 牆：飽和色＋一點暗角＋很淡的點陣 */
+.app{position:relative;height:100%;display:grid;grid-template-columns:minmax(0,1fr) var(--pw);overflow:hidden;transition:grid-template-columns .5s cubic-bezier(.2,.8,.2,1),--field var(--field-t),--deep var(--field-t);
+  background:radial-gradient(120% 95% at 62% 38%,var(--field) 0%,var(--deep) 100%)}
+.app::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:radial-gradient(var(--dot) 1px,transparent 1.2px);background-size:26px 26px;background-position:13px 13px;opacity:.8}
+.app.closed{grid-template-columns:minmax(0,1fr) 0px}
+.app.closed .panel{opacity:0;visibility:hidden;transform:translateX(24px)}
+.col{position:relative;z-index:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+
+/* 頂列：左邊是狀態訊息，右邊是模式切換（進階時多一排跳段） */
+.top{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px var(--edge) 6px;min-height:54px}
+.top .status{justify-self:start}
+.jump{display:flex;gap:2px;padding:3px;background:var(--well);border:1px solid var(--line);justify-self:center;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.jump::-webkit-scrollbar{display:none}
+.jump button{font:500 .66rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);background:transparent;border:0;padding:10px 13px;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s}
+.jump button:hover{color:var(--ink);background:var(--well)}
+.jump button.on{color:var(--on-ink);background:var(--ink)}
+
+/* 主舞台：左欄是一條直線（標題在上、操作在下，底部對齊海報底部），右邊是海報 */
+.hero{flex:1;min-height:0;display:grid;grid-template-columns:clamp(260px,30%,430px) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);
+  grid-template-areas:"top view" "ctrl view";column-gap:32px;padding:10px var(--edge) var(--edge)}
+.lede{display:contents}
+.lede-top{grid-area:top;container-type:inline-size;display:grid;gap:18px;align-content:start;padding-top:14px;min-width:0}
+.lede-ctrl{grid-area:ctrl;align-self:end;display:grid;gap:14px;padding:18px 0 var(--cap);min-width:0}
+.eyebrow{margin:0;font:400 .66rem/1.5 var(--mono);color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase}
+.eyebrow b{font-weight:400;color:var(--pop)}
+/* 大標題：Unbounded 全大寫，第二行細一階；字級跟著左欄寬度走，剛好撐滿 */
+h1{margin:0;font:600 clamp(40px,5vw,84px)/1.04 var(--tech);font-size:min(84px,15.4cqi);text-transform:uppercase;letter-spacing:0}
+h1 em{font-style:normal;font-weight:300;color:var(--ink-2)}
+.blurb{margin:0;max-width:36ch;font-size:.9rem;line-height:1.75;color:var(--ink-2)}
+.blurb b{font-weight:500;color:var(--ink)}
+/* 懸停說明：說明文字不擺在版面上，停在元件上 0.8 秒才彈出 */
+.tip{position:fixed;left:0;top:0;z-index:60;max-width:260px;padding:9px 12px;font:400 .74rem/1.6 var(--sans);color:var(--ink);background:var(--card-solid);border:1px solid var(--line-2);box-shadow:0 14px 34px rgba(0,0,0,.35);pointer-events:none;opacity:0;transition:opacity .18s ease}
+.tip.on{opacity:1}
+/* 少字：說明段落一律收起，只留標題和操作 */
+.blurb,.coach p,.g-head p,.hint,.pal-note{display:none!important}
+
+/* 左欄下半：骰子 → 素材 → 輸出，全部同一條左邊線、同一個寬度 */
+.src-row{display:flex;gap:8px}
+.src-row .btn{justify-content:center}
+.src-row #fileLbl{flex:1}
+.out-row{display:grid;gap:8px}
+.out-row .chips{grid-auto-columns:minmax(0,1fr)}
+.out-row .chip{padding:9px 4px;font-size:.74rem}
+.outs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.outs .btn{justify-content:center;padding-inline:8px}
+
+.view{grid-area:view;position:relative;min-width:0;min-height:0}
+.view canvas{position:absolute;left:0;top:0;width:100%;height:calc(100% - var(--cap));object-fit:contain;display:block;filter:drop-shadow(0 28px 50px rgba(0,0,0,.42))}
+/* 海報下方的說明列：素材名稱、輸出尺寸 */
+.cap{position:absolute;left:0;top:0;display:flex;justify-content:space-between;gap:12px;font:400 .68rem/1.4 var(--mono);color:var(--ink-3);letter-spacing:.04em;font-variant-numeric:tabular-nums;pointer-events:none;white-space:nowrap}
+.cap b{font-weight:400;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.view canvas.drag-ok{touch-action:none;cursor:crosshair}
+/* 拖曳控制：玻璃質感。疊在畫面上的元件，不畫進畫布，所以不會被存進 PNG 或錄進影片 */
+.handles{position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none;z-index:1}
+.handles > *{position:absolute;left:0;top:0;opacity:0;transition:opacity .25s ease}
+.handles.show > *{opacity:1}
+.h-glass{-webkit-backdrop-filter:blur(7px) saturate(170%) brightness(1.18);backdrop-filter:blur(7px) saturate(170%) brightness(1.18)}
+.h-puck{width:34px;height:34px;border-radius:50%;
+  background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.42),rgba(255,255,255,.08) 42%,rgba(255,255,255,.03) 70%,rgba(255,255,255,.12));
+  border:1px solid rgba(255,255,255,.5);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.75),inset 0 -7px 12px rgba(0,0,0,.28),0 8px 22px rgba(0,0,0,.45)}
+.h-ring{border-radius:50%;
+  background:linear-gradient(140deg,rgba(255,255,255,.4),rgba(255,255,255,.05) 38%,rgba(255,255,255,.04) 62%,rgba(255,255,255,.26));
+  -webkit-mask:radial-gradient(circle closest-side,transparent calc(100% - 9px),#000 calc(100% - 8.5px));mask:radial-gradient(circle closest-side,transparent calc(100% - 9px),#000 calc(100% - 8.5px))}
+.h-ring-edge{border-radius:50%;border:1px solid rgba(255,255,255,.55);box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.h-ring-edge::after{content:"";position:absolute;inset:8px;border-radius:50%;border:1px solid rgba(255,255,255,.22)}
+.h-bar{height:10px;border-radius:5px;transform-origin:0 50%;
+  background:linear-gradient(180deg,rgba(255,255,255,.42),rgba(255,255,255,.06) 55%,rgba(255,255,255,.2));
+  border:1px solid rgba(255,255,255,.4);box-shadow:inset 0 1px 1px rgba(255,255,255,.6),0 4px 16px rgba(0,0,0,.35)}
+.h-arm{height:6px;width:64px;border-radius:3px;transform-origin:0 50%;
+  background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.5));border:1px solid rgba(255,255,255,.35);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.55),0 3px 10px rgba(0,0,0,.35)}
+
+.status{margin:0;display:inline-flex;align-items:center;gap:10px;max-width:min(560px,100%);font:400 .82rem/1.5 var(--sans);color:var(--ink);background:var(--card);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid var(--line);padding:8px 16px 8px 12px}
+.status::before{content:"";flex:none;width:7px;height:7px;background:var(--ink)}
+.status:empty{visibility:hidden}
+.status.bad{color:var(--pop);border-color:color-mix(in srgb,var(--pop) 50%,transparent)}
+.status.bad::before{background:var(--pop)}
+.btn{font:500 .82rem/1 var(--sans);color:var(--ink);background:var(--well);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid var(--line-2);padding:11px 17px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:background .15s,border-color .15s,color .15s}
+.btn:hover{background:var(--ink);color:var(--on-ink);border-color:var(--ink)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.solid{background:var(--ink);color:var(--on-ink);border-color:var(--ink)}
+.btn.solid:hover{background:var(--pop);border-color:var(--pop);color:#fff}
+.btn.rec[aria-pressed="true"]{border-color:var(--pop);color:var(--pop);background:transparent}
+.btn.rec[aria-pressed="true"]::before{content:"";width:8px;height:8px;background:var(--pop)}
+.btn svg{width:14px;height:14px;flex:none}
+#fileIn{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+
+/* 頂列的兩組藥丸：模式、跳段 */
+.navs{display:flex;gap:8px;justify-self:end;min-width:0;max-width:100%}
+.jump .aux{font:400 .62rem/1 var(--mono);opacity:.7;margin-left:6px;letter-spacing:.06em}
+.jump button.on .aux{opacity:.8}
+
+/* 骰子：簡單模式的主角 */
+.dock{position:relative;display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px}
+.dbtn{display:grid;gap:3px;align-content:center;justify-items:start;font:500 .82rem/1 var(--sans);color:var(--ink);background:var(--well);border:1px solid var(--line-2);padding:10px 16px;cursor:pointer;transition:background .15s,color .15s;width:96px}
+.dbtn b{font:300 1rem/1 var(--tech);letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.dbtn:hover{background:var(--ink);color:var(--on-ink)}
+.dbtn:hover .fk{color:inherit;opacity:.7}
+.dbtn:disabled{opacity:.4;cursor:default}
+.dbtn:disabled:hover{background:var(--well);color:var(--ink)}
+.roll{position:relative;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:14px;align-items:center;text-align:left;font-family:var(--sans);color:var(--on-ink);background:var(--ink);border:1px solid var(--ink);padding:10px 22px 10px 14px;cursor:pointer;width:auto;min-width:0;box-shadow:0 18px 40px rgba(0,0,0,.28);transition:background .2s,color .2s,border-color .2s}
+.roll:hover{background:var(--pop);border-color:var(--pop);color:#fff}
+.roll .rl{font:600 1.15rem/1.1 var(--tech);letter-spacing:.04em;text-transform:uppercase}
+.roll .rn{font:400 .62rem/1.4 var(--mono);letter-spacing:.12em;opacity:.7;text-transform:uppercase}
+.roll .die{grid-row:1 / 3;width:34px;height:34px;border-radius:9px;border:2px solid currentColor;display:grid;grid-template-columns:1fr 1fr;place-items:center;padding:5px}
+.roll .die i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.look{display:grid;gap:3px;align-content:center;padding:0 2px;min-width:0}
+.look .fk b{color:var(--ink-2)}
+.look > b{font:300 .86rem/1.35 var(--tech);letter-spacing:.03em;text-transform:uppercase;color:var(--ink);overflow-wrap:anywhere}
+.coach{position:absolute;left:0;bottom:calc(100% + 14px);width:min(320px,calc(100vw - 32px));display:grid;gap:6px;padding:14px 38px 14px 16px;background:var(--card-solid);color:var(--ink);border:1px solid var(--line-2);box-shadow:0 20px 50px rgba(0,0,0,.35);z-index:5}
+.coach::after{content:"";position:absolute;left:170px;bottom:-7px;width:12px;height:12px;background:var(--card-solid);border-right:1px solid var(--line-2);border-bottom:1px solid var(--line-2);transform:translateX(-50%) rotate(45deg)}
+.coach strong{font:600 .95rem/1.2 var(--tech);letter-spacing:.04em;text-transform:uppercase}
+.coach p{margin:0;font-size:.78rem;line-height:1.6;color:var(--ink-2)}
+.coach .fk b{color:var(--pop)}
+.coach-x{position:absolute;top:8px;right:8px;width:26px;height:26px;border:0;background:var(--well);color:var(--ink);font:400 1rem/1 var(--sans);cursor:pointer}
+.coach-x:hover{background:var(--ink);color:var(--on-ink)}
+.app.closed .jump:not(.mode){display:none}
+
+
+.drop{position:absolute;inset:0;z-index:10;display:grid;place-items:center;background:color-mix(in srgb,var(--field) 88%,black);outline:2px dashed var(--ink);outline-offset:-18px;color:var(--ink);font:700 clamp(40px,8vw,120px)/1 var(--sans);text-align:center}
+.drop small{display:block;margin-top:.8em;font:400 .16em/1.3 var(--mono);letter-spacing:.14em;color:var(--ink-2)}
+
+/* 效果拖曳：幽靈方塊、落點、漣漪、畫面上的標籤 */
+.fx-ghost{position:fixed;left:0;top:0;z-index:50;pointer-events:none;display:grid;justify-items:center;gap:3px;padding:12px 20px 11px;color:#fff;
+  font:600 .92rem/1.1 var(--sans);letter-spacing:.04em;white-space:nowrap;transform-origin:center;
+  background:linear-gradient(160deg,rgba(255,255,255,.28),rgba(255,255,255,.08) 55%,rgba(255,255,255,.16));
+  -webkit-backdrop-filter:blur(14px) saturate(170%);backdrop-filter:blur(14px) saturate(170%);
+  border:1px solid rgba(255,255,255,.55);box-shadow:inset 0 1px 1px rgba(255,255,255,.65),0 16px 36px rgba(0,0,0,.45)}
+.fx-ghost small{font:400 .58rem/1.3 var(--mono);color:rgba(255,255,255,.75);letter-spacing:.14em;text-transform:uppercase}
+.fx-ghost.back{transition:transform .35s cubic-bezier(.2,.8,.2,1),opacity .35s ease}
+.fx-zone{position:absolute;z-index:3;pointer-events:none;display:grid;place-items:center;opacity:0;
+  border:1px dashed rgba(255,255,255,.35);transition:opacity .2s,border-color .2s,box-shadow .2s,background .2s}
+.fx-zone.on{opacity:1}
+.fx-zone.armed{border-color:rgba(255,255,255,.9);border-style:solid;background:rgba(255,255,255,.05);box-shadow:inset 0 0 90px rgba(255,255,255,.12)}
+.fx-zone span{font:600 .95rem/1.4 var(--sans);color:#fff;letter-spacing:.04em;padding:10px 18px;background:rgba(10,11,13,.5);
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.3);transition:transform .2s}
+.fx-zone.armed span{transform:scale(1.06);border-color:rgba(255,255,255,.6)}
+.fx-ripple{position:absolute;z-index:3;pointer-events:none;width:260px;height:260px;margin:-130px 0 0 -130px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.75);box-shadow:0 0 34px rgba(255,255,255,.25),inset 0 0 34px rgba(255,255,255,.22);
+  -webkit-backdrop-filter:blur(3px) brightness(1.3);backdrop-filter:blur(3px) brightness(1.3);animation:fxRipple .85s cubic-bezier(.2,.7,.2,1) forwards}
+@keyframes fxRipple{from{transform:scale(.06);opacity:1}to{transform:scale(1.7);opacity:0}}
+.fx-tags{position:absolute;z-index:3;left:0;top:0;transform:translateX(-100%);display:grid;justify-items:end;gap:6px}
+.fx-tag{display:inline-flex;align-items:center;gap:4px;padding:5px 5px 5px 13px;color:#fff;
+  font:500 .76rem/1 var(--sans);background:rgba(12,13,15,.45);-webkit-backdrop-filter:blur(12px) saturate(150%);backdrop-filter:blur(12px) saturate(150%);
+  border:1px solid rgba(255,255,255,.32);box-shadow:inset 0 1px 1px rgba(255,255,255,.35),0 6px 18px rgba(0,0,0,.35)}
+.fx-tag-name{background:none;border:0;color:inherit;font:inherit;padding:0 4px 0 0;cursor:pointer}
+.fx-tag.sel{border-color:rgba(255,255,255,.85);background:rgba(255,255,255,.16)}
+.fx-tag .fx-tag-x{width:22px;height:22px;border:0;background:rgba(255,255,255,.12);color:#fff;font:400 .9rem/1 var(--sans);cursor:pointer}
+.fx-tag .fx-tag-x:hover{background:rgba(255,255,255,.3)}
+body.fx-dragging,body.fx-dragging *{cursor:grabbing!important;-webkit-user-select:none;user-select:none}
+
+/* 控制卡 */
+.panel{position:relative;z-index:1;justify-self:start;width:calc(var(--pw) - var(--edge));margin:var(--edge) 0;max-height:calc(100% - var(--edge) * 2);transition:opacity .3s,visibility .3s,transform .5s cubic-bezier(.2,.8,.2,1);overflow-y:auto;overscroll-behavior:contain;display:grid;align-content:start;
+  background:var(--card);-webkit-backdrop-filter:blur(24px) saturate(130%);backdrop-filter:blur(24px) saturate(130%);border:1px solid var(--line);
+  scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;box-shadow:0 30px 60px rgba(0,0,0,.25)}
+.p-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 10px 10px 20px;border-bottom:1px solid var(--line);
+  background:color-mix(in srgb,var(--card-solid) 86%,transparent);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+.p-head .t{font:500 .66rem/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2)}
+.p-head .acts{display:flex;gap:2px}
+.qbtn{font:500 .74rem/1 var(--sans);color:var(--ink-2);background:transparent;border:0;padding:8px 10px;cursor:pointer;transition:background .15s,color .15s}
+.qbtn:hover{color:var(--ink);background:var(--well)}
+.group{padding:20px 20px 24px;display:grid;gap:14px;min-width:0;border-bottom:1px solid var(--line);scroll-margin-top:52px}
+.group:last-of-type{border-bottom:0}
+.ctl{display:grid;gap:13px;transition:opacity .15s}
+.group.off .ctl{opacity:.32;pointer-events:none}
+.sub{display:grid;gap:13px}
+.g-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;min-height:20px}
+.g-head .n{font:300 .84rem/1 var(--tech);color:var(--ink-3);letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.g-head h2,.s-head{margin:0;font:600 .84rem/1 var(--tech);letter-spacing:.06em;text-transform:uppercase}
+.g-head p{margin:.35em 0 0;color:var(--ink-3);font-size:.78rem;line-height:1.65}
+
+/* 心情：一排可以直接套的組合 */
+.moods{display:grid;gap:1px;background:var(--line);border:1px solid var(--line-2)}
+.mood{display:grid;grid-template-columns:2.2em minmax(0,1fr) 56px;gap:10px;align-items:center;text-align:left;font:500 .8rem/1 var(--sans);color:var(--ink-2);background:var(--card-solid);border:0;padding:11px 12px;cursor:pointer;transition:background .15s,color .15s}
+.mood .i{font:400 .62rem/1 var(--mono);letter-spacing:.12em;color:var(--ink-3)}
+.mood .nm{font:500 .74rem/1 var(--sans);letter-spacing:.08em}
+.mood .sw{height:6px}
+.mood:hover{color:var(--ink);background:color-mix(in srgb,var(--card-solid) 70%,var(--ink))}
+.mood.on{background:var(--ink);color:var(--on-ink)}
+.mood.on .i{color:inherit;opacity:.6}
+
+/* 分段選擇：藥丸形 */
+.chips{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:1px;padding:0;border:1px solid var(--line-2);background:var(--line)}
+.chip{background:var(--card-solid)}
+.chip{position:relative;font:500 .78rem/1.2 var(--sans);color:var(--ink-2);border:0;padding:8px 6px;cursor:pointer;display:inline-flex;gap:5px;align-items:center;justify-content:center;text-align:center;min-width:0;transition:background .12s,color .12s}
+.chip:hover{color:var(--ink);background:color-mix(in srgb,var(--card-solid) 70%,var(--ink))}
+.chip.on{color:var(--on-ink);background:var(--ink)}
+.chip .aux{font:400 .66rem/1 var(--mono);opacity:.75}
+.mono-chip{font-family:var(--mono)!important;font-size:.72rem!important;letter-spacing:.03em}
+/* 配色：四張色票 */
+#palette{grid-auto-flow:row;grid-template-columns:repeat(4,minmax(0,1fr))}
+#palette .chip{flex-direction:column;align-items:stretch;gap:7px;padding:8px 7px 9px}
+.chip .sw{display:block;height:9px;width:100%}
+/* 影像效果：貼紙，可以拖進畫面 */
+#fxPick{grid-auto-flow:row;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:0;border:0;background:transparent}
+#fxPick .chip{border:1px dashed var(--line-2);background:transparent;padding:12px 6px;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none;font-size:.76rem;line-height:1.25}
+#fxPick .chip:hover{border-style:solid}
+#fxPick .chip{white-space:nowrap;padding-inline:2px;font-size:.72rem}
+#fxPick .chip.on{border-style:solid;border-color:var(--ink);background:var(--ink);color:var(--on-ink)}
+#fxPick .chip.on:hover{background:var(--ink);color:var(--on-ink)}
+#fxPick .chip.lifting{opacity:.35}
+#fxPick .chip.sel::after{content:"";position:absolute;top:6px;right:6px;width:6px;height:6px;background:var(--pop)}
+#fxCtl .chips{grid-auto-flow:row}
+
+.field{display:grid;gap:7px}
+.fk{font:400 .64rem/1.4 var(--mono);color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase}
+.hint{margin:0;font-size:.76rem;color:var(--ink-3);line-height:1.65}
+.hint b{font-weight:500;color:var(--ink)}
+.pal-note{margin:0;font-size:.76rem;color:var(--ink-2);line-height:1.6}
+.pal-note:empty{display:none}
+
+/* 滑桿：粗一點、圓一點、有重量 */
+.sl{display:grid;grid-template-columns:4.6rem minmax(0,1fr) 2.8rem;gap:10px;align-items:center;font-size:.8rem;color:var(--ink-2)}
+.sl output{font:400 .7rem/1 var(--mono);color:var(--ink);text-align:right;font-variant-numeric:tabular-nums;border:1px solid var(--line);padding:5px 6px;background:var(--well)}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;min-width:0;height:22px;margin:0;background:transparent;cursor:pointer;--p:50%}
+input[type=range]::-webkit-slider-runnable-track{height:4px;background:linear-gradient(90deg,var(--ink) var(--p),var(--line-2) var(--p))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:18px;margin-top:-7px;background:var(--ink);border:2px solid var(--card-solid);box-shadow:0 2px 8px rgba(0,0,0,.35)}
+input[type=range]::-moz-range-track{height:4px;background:var(--line-2)}
+input[type=range]::-moz-range-progress{height:4px;background:var(--ink)}
+input[type=range]::-moz-range-thumb{width:6px;height:14px;background:var(--ink);border:2px solid var(--card-solid)}
+.checks{display:flex;flex-wrap:wrap;gap:8px}
+.ck{display:inline-flex;gap:8px;align-items:center;font-size:.78rem;color:var(--ink-2);cursor:pointer;border:1px solid var(--line);padding:7px 12px 7px 9px;transition:border-color .15s,color .15s}
+.ck:hover{border-color:var(--ink);color:var(--ink)}
+.ck:has(input:checked){color:var(--ink);border-color:var(--line-2)}
+.ck input{appearance:none;-webkit-appearance:none;width:14px;height:14px;margin:0;border:1px solid var(--line-2);background:transparent;display:grid;place-items:center;cursor:pointer}
+.ck input:checked{background:var(--ink);border-color:var(--ink)}
+.ck input:checked::after{content:"";width:5px;height:5px;background:var(--on-ink)}
+
+.tg{position:relative;display:inline-block;width:34px;height:18px;flex:none}
+.tg input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;cursor:pointer}
+.tg span{position:absolute;inset:0;border:1px solid var(--ink);background:var(--ink);pointer-events:none;transition:background .15s,border-color .15s}
+.tg span::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--on-ink);transition:transform .18s cubic-bezier(.2,.8,.2,1),background .15s}
+.tg input:checked+span::after{transform:translateX(16px)}
+.tg input:not(:checked)+span{border-color:var(--line-2);background:transparent}
+.tg input:not(:checked)+span::after{background:var(--ink-3)}
+
+.about{padding:18px 20px 22px;color:var(--ink-3);font-size:.72rem;line-height:1.75}
+.about a{color:var(--ink-2)}
+
+.btn:focus-visible,.qbtn:focus-visible,.chip:focus-visible,.mood:focus-visible,.jump button:focus-visible,input[type=range]:focus-visible,.ck input:focus-visible,.tg input:focus-visible+span,.fx-tag button:focus-visible{outline:2px solid var(--pop);outline-offset:2px}
+
+/* 中等寬度：標題橫向一條放最上面；下面左邊海報、右邊操作欄 */
+@media (max-width:1100px){
+  .hero{grid-template-columns:minmax(0,1fr) 300px;grid-template-areas:"top top" "view ctrl";row-gap:10px;column-gap:24px}
+  .lede-top{container-type:normal;grid-template-columns:auto minmax(0,1fr);align-items:end;gap:6px 28px;padding-top:4px}
+  .lede-top .eyebrow{grid-column:1 / -1}
+  h1{font-size:clamp(30px,4.4vw,50px)}
+  h1 br{display:none}
+  h1 em{margin-left:.3em}
+  .blurb{font-size:.84rem;max-width:52ch}
+}
+/* 手機：整頁捲動，標題 → 海報 → 操作 → 控制卡 */
+@media (max-width:760px){
+  body{overflow:auto}
+  .app{height:auto;display:block;padding-bottom:env(safe-area-inset-bottom,0px)}
+  .col{display:block}
+  .top{padding-top:14px}
+  .hero{display:flex;flex-direction:column;gap:16px;padding:8px var(--edge) 0}
+  .lede-top{order:1;container-type:inline-size;grid-template-columns:1fr;gap:12px}
+  .view{order:2;height:62svh;min-height:360px}
+  .lede-ctrl{order:3;align-self:stretch;padding:0 0 18px}
+  h1{font-size:min(84px,15.4cqi)}
+  h1 br{display:inline}
+  h1 em{margin-left:0}
+  .blurb{max-width:none}
+  /* 狀態訊息在手機上改成浮在底部，捲到哪裡都看得到 */
+  .top .status{position:fixed;left:var(--edge);right:var(--edge);bottom:calc(var(--edge) + env(safe-area-inset-bottom,0px));z-index:20;max-width:none}
+  .app.closed .panel{display:none}
+  .panel{width:auto;transform:none;margin:4px var(--edge) 28px;max-height:none;overflow:visible;backdrop-filter:none;-webkit-backdrop-filter:none;background:color-mix(in srgb,var(--card-solid) 70%,var(--field));box-shadow:none}
+  .p-head{position:static}
+  .navs{flex-wrap:wrap}
+}
+@media (prefers-reduced-motion:reduce){
+  .handles > *,.tg span,.tg span::after,.ctl,.chip,.btn,.mood,.jump button{transition:none}
+  .fx-ghost.back{transition:none}
+  .app,.panel,body{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="col">
+    <header class="top">
+      <p class="status" id="status" role="status"></p>
+      <div class="navs">
+        <nav class="jump" id="jump" aria-label="跳到" hidden>
+          <button type="button" data-go="g0">mood</button>
+          <button type="button" data-go="gfx">fx</button>
+          <button type="button" data-go="g1">color</button>
+          <button type="button" data-go="g2">trail</button>
+          <button type="button" data-go="g3">track</button>
+        </nav>
+        <nav class="jump mode" id="mode" aria-label="模式">
+          <button type="button" id="easyBtn" class="on" aria-pressed="true">easy</button>
+          <button type="button" id="proBtn" aria-pressed="false">pro</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="hero" id="top">
+      <section class="lede">
+        <div class="lede-top">
+          <p class="eyebrow">no.003 <b>·</b> live in your browser</p>
+          <h1>Thermal<br><em>Tracking</em></h1>
+          <p class="blurb">把任何影片或照片，變成熱像儀眼裡的樣子：<b>假色、拖尾、光暈</b>，再加一層會自己找主體的追蹤框。按下面的骰子一組一組擲；想自己動手，切到進階。</p>
+        </div>
+        <div class="lede-ctrl">
+          <div class="dock" id="dock">
+            <div class="coach" id="coach">
+            <span class="fk">first roll <b>/ 01</b></span>
+            <strong>try a roll</strong>
+            <p>每擲一次，配色、拖尾、效果全部重組，連牆的顏色都會換。擲到喜歡為止，再切到進階慢慢調。</p>
+            <button class="coach-x" id="coachX" type="button" aria-label="知道了">×</button>
+            </div>
+            <button class="dbtn undo" id="undoBtn" type="button" disabled><span class="fk">undo</span><b id="undoN">—</b></button>
+            <button class="roll" id="rollBtn" type="button">
+            <span class="die" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span class="rl" id="rollTxt">roll</span>
+            <span class="rn" id="rollNext">next 001 ↻</span>
+            </button>
+          </div>
+          <div class="look" id="look"><span class="fk">look <b id="lookN">000</b></span><b id="lookName">not rolled yet · butterfly warm-up</b></div>
+          <div class="src-row">
+            <label class="btn" id="fileLbl" for="fileIn" tabindex="0" role="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 16V4M6.5 9.5 12 4l5.5 5.5M4 15v5h16v-5"/></svg><span id="fileTxt">上傳素材</span></label>
+            <button class="btn" id="demoBtn" type="button" hidden>回到蝴蝶</button>
+          </div>
+          <div class="field out-row">
+            <span class="fk">output</span>
+            <div class="chips" id="aspect">
+            <button class="chip on" type="button" data-v="auto" aria-pressed="true">自動</button>
+            <button class="chip" type="button" data-v="4:5" aria-pressed="false">4:5</button>
+            <button class="chip" type="button" data-v="9:16" aria-pressed="false">9:16</button>
+            <button class="chip" type="button" data-v="1:1" aria-pressed="false">1:1</button>
+            <button class="chip" type="button" data-v="16:9" aria-pressed="false">16:9</button>
+            </div>
+            <div class="outs">
+              <button class="btn" id="playBtn" type="button">暫停</button>
+              <button class="btn" id="pngBtn" type="button">存成 png</button>
+              <button class="btn rec" id="recBtn" type="button" aria-pressed="false">錄 6 秒</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="view" id="stage">
+        <canvas id="out" width="810" height="1080" aria-label="套用熱感效果後的即時畫面"></canvas>
+        <div class="handles" id="handles" aria-hidden="true">
+          <div class="h-ring h-glass" id="hRing"></div><div class="h-ring-edge" id="hRingEdge"></div>
+          <div class="h-bar h-glass" id="hBar"></div><div class="h-arm h-glass" id="hArm"></div>
+          <div class="h-puck h-glass" id="hPuck"></div>
+        </div>
+        <div class="fx-zone" id="fxZone" aria-hidden="true"><span id="fxZoneTxt"></span></div>
+        <div class="fx-tags" id="fxTags"></div>
+        <div class="cap" id="cap"><b id="srcName">示範素材：蝴蝶</b><span id="meta">810×1080</span></div>
+      </section>
+    </main>
+    <input type="file" id="fileIn" accept="video/*,image/*">
+  </div>
+
+  <aside class="panel" id="panel" aria-label="控制卡">
+    <div class="p-head">
+      <span class="t">controls</span>
+      <div class="acts">
+        <button class="qbtn" id="resetBtn" type="button" title="所有參數回到預設值，素材不變">恢復預設</button>
+        <button class="qbtn" id="closeBtn" type="button" title="收起控制卡，回到只有骰子的簡單模式">收起</button>
+      </div>
+    </div>
+
+    <div class="group" id="g0">
+      <div class="g-head">
+        <span class="n">00</span>
+        <div><h2>mood</h2><p>一鍵換整組參數，再往下慢慢微調。</p></div>
+      </div>
+      <div class="moods" id="moods"></div>
+      <div class="field">
+        <span class="fk">background</span>
+        <div class="chips" id="bgMode">
+          <button class="chip on" type="button" data-v="auto" aria-pressed="true">自動<span class="aux" id="bgAuto"></span></button>
+          <button class="chip" type="button" data-v="dark" aria-pressed="false">黑底</button>
+          <button class="chip" type="button" data-v="light" aria-pressed="false">白底</button>
+        </div>
+        <p class="hint">白底會把亮暗反過來：背景沉下去，杯緣、反光和陰影變成發光主體，追蹤也改抓這些地方。</p>
+      </div>
+    </div>
+
+    <div class="group" id="gfx">
+      <div class="g-head">
+        <span class="n">01</span>
+        <div><h2>fx</h2><p>先改變畫面本身：扭曲、切片、網點、馬賽克。原理都是讓每個點換個位置取色，或換一種方式上色。</p></div>
+      </div>
+      <div class="ctl">
+        <p class="hint">把貼紙<b>拖進畫面</b>就會疊上去，最多 4 個，放開的位置就是效果中心。也可以直接點；疊過的再點一次是選它來調整，選中的再點一次就取消。</p>
+        <div class="chips" id="fxPick"></div>
+        <p class="pal-note" id="fxStack"></p>
+        <p class="pal-note" id="fxNote"></p>
+        <div class="sub" id="fxCtl">
+          <label class="sl"><span>強度</span><input type="range" id="amt" min="0" max="1" step="0.01" value="0.6"><output id="amt_o"></output></label>
+          <label class="sl"><span id="sizeLabel">範圍</span><input type="range" id="size" min="0" max="1" step="0.01" value="0.45"><output id="size_o"></output></label>
+          <div class="chips"><button class="chip" id="fxOnly" type="button">只看效果</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="group" id="g1">
+      <div class="g-head">
+        <span class="n">02</span>
+        <div><h2>color</h2><p>先把畫面變成只有亮暗，再把亮暗換成一組假色，跟熱像儀同一招。換配色，整面牆也跟著換。</p></div>
+        <label class="tg" title="開關這一層"><input type="checkbox" id="on1" checked aria-label="開關熱感配色"><span></span></label>
+      </div>
+      <div class="ctl">
+        <div class="chips" id="palette"></div>
+        <p class="pal-note" id="palNote"></p>
+        <label class="sl"><span>切掉暗部</span><input type="range" id="black" min="0" max="0.6" step="0.01" value="0.08"><output id="black_o"></output></label>
+        <label class="sl"><span>亮部對比</span><input type="range" id="gamma" min="0.5" max="2.5" step="0.05" value="1.25"><output id="gamma_o"></output></label>
+        <label class="sl"><span>邊緣破色</span><input type="range" id="edge" min="0" max="1" step="0.01" value="0.55"><output id="edge_o"></output></label>
+        <label class="sl"><span>顆粒</span><input type="range" id="grain" min="0" max="1" step="0.01" value="0.35"><output id="grain_o"></output></label>
+      </div>
+    </div>
+
+    <div class="group" id="g2">
+      <div class="g-head">
+        <span class="n">03</span>
+        <div><h2>trail</h2><p>每一格都把上一格的殘影推一點、淡一點，疊久了就成拖尾。放射從主體中心往外推；飄流往同一個方向邊飄邊扭。</p></div>
+        <label class="tg" title="開關這一層"><input type="checkbox" id="on2" checked aria-label="開關拖尾和光暈"><span></span></label>
+      </div>
+      <div class="ctl">
+        <div class="field">
+          <span class="fk">mode</span>
+          <div class="chips" id="trailMode">
+            <button class="chip on" type="button" data-v="burst" aria-pressed="true">放射</button>
+            <button class="chip" type="button" data-v="drift" aria-pressed="false">飄流</button>
+          </div>
+        </div>
+        <label class="sl"><span>拖尾長度</span><input type="range" id="decay" min="0" max="0.985" step="0.005" value="0.93"><output id="decay_o"></output></label>
+        <div class="sub" id="burstCtl">
+          <label class="sl"><span>放射速度</span><input type="range" id="zoom" min="0" max="1" step="0.01" value="0.4"><output id="zoom_o"></output></label>
+          <label class="sl"><span>放射幅度</span><input type="range" id="amp" min="0" max="1" step="0.01" value="0.35"><output id="amp_o"></output></label>
+          <label class="sl"><span>放射紋</span><input type="range" id="rays" min="0" max="1" step="0.01" value="0.45"><output id="rays_o"></output></label>
+          <div class="field">
+            <span class="fk">center</span>
+            <div class="chips" id="centerMode">
+              <button class="chip on" type="button" data-v="follow" aria-pressed="true">跟著主體</button>
+              <button class="chip" type="button" data-v="center" aria-pressed="false">畫面中央</button>
+            </div>
+          </div>
+          <div class="checks"><label class="ck"><input type="checkbox" id="pulse">忽強忽弱</label></div>
+        </div>
+        <div class="sub" id="driftCtl" hidden>
+          <label class="sl"><span>飄移方向</span><input type="range" id="angle" min="0" max="360" step="5" value="100"><output id="angle_o"></output></label>
+          <label class="sl"><span>飄移速度</span><input type="range" id="speed" min="0" max="1" step="0.01" value="0.35"><output id="speed_o"></output></label>
+          <label class="sl"><span>扭動</span><input type="range" id="warp" min="0" max="1" step="0.01" value="0.45"><output id="warp_o"></output></label>
+        </div>
+        <label class="sl"><span>光暈</span><input type="range" id="glow" min="0" max="1.5" step="0.01" value="0.7"><output id="glow_o"></output></label>
+      </div>
+    </div>
+
+    <div class="group" id="g3">
+      <div class="g-head">
+        <span class="n">04</span>
+        <div><h2>track</h2><p>比門檻亮的區域算一個「塊」，每格找出來、編號、畫框、連線，下一格再對回同一個編號。標註會依畫面亮暗自動換成白線或黑線。</p></div>
+        <label class="tg" title="開關這一層"><input type="checkbox" id="on3" checked aria-label="開關追蹤標註"><span></span></label>
+      </div>
+      <div class="ctl">
+        <label class="sl"><span>亮塊門檻</span><input type="range" id="thr" min="0.05" max="0.95" step="0.01" value="0.45"><output id="thr_o"></output></label>
+        <label class="sl"><span>最小面積</span><input type="range" id="minA" min="0.05" max="4" step="0.05" value="0.4"><output id="minA_o"></output></label>
+        <label class="sl"><span>保留格數</span><input type="range" id="hold" min="0" max="30" step="1" value="6"><output id="hold_o"></output></label>
+        <div class="field">
+          <span class="fk">label</span>
+          <div class="chips" id="labelMode">
+            <button class="chip mono-chip on" type="button" data-v="section" aria-pressed="true">SECTION 09</button>
+            <button class="chip mono-chip" type="button" data-v="code" aria-pressed="false">99867 T48</button>
+          </div>
+        </div>
+        <div class="checks">
+          <label class="ck"><input type="checkbox" id="boxes" checked>追蹤框</label>
+          <label class="ck"><input type="checkbox" id="lines" checked>連線</label>
+          <label class="ck"><input type="checkbox" id="thumbs" checked>特寫縮圖</label>
+          <label class="ck"><input type="checkbox" id="hud" checked>參數字</label>
+        </div>
+      </div>
+    </div>
+
+    <p class="about">ref · <a href="https://www.instagram.com/p/DeEo7SjjLYz/" target="_blank" rel="noopener">eight.seconds</a> · <a href="https://www.instagram.com/reel/DdoF2QPICyz/" target="_blank" rel="noopener">design4me__</a></p>
+  </aside>
+
+  <div class="drop" id="drop" hidden>放開<small>就載入這個檔案</small></div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const out = $('out');
+const octx = out.getContext('2d');
+const statusEl = $('status');
+let sayT = 0;
+function say(msg, bad) {
+  statusEl.textContent = msg; statusEl.classList.toggle('bad', !!bad);
+  clearTimeout(sayT); if (msg) sayT = setTimeout(() => { statusEl.textContent = ''; }, bad ? 12000 : 7000);
+}
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const P = {
+  black: .08, gamma: 1.25, edge: .55, grain: .35,
+  decay: .93, angle: 100, speed: .35, warp: .45, glow: .7,
+  zoom: .4, amp: .35, rays: .45, pulse: false, trailMode: 'burst', centerMode: 'follow',
+  thr: .45, minA: .4, hold: 6,
+  on1: true, on2: true, on3: true, boxes: true, lines: true, thumbs: true, hud: true,
+  labelMode: 'section', palette: 'sixfold', aspect: 'auto', bg: 'auto',
+  fx: 'none', amt: .6, size: .45, ctrl: { x: .5, y: .5 }
+};
+const DEFAULTS = JSON.parse(JSON.stringify(P));
+
+// 影像效果庫：之後要加新效果，在這裡加一筆，再到 FS_FX 加一段同 id 的分支
+// center：這個效果會跟著畫面上的拖曳點走；R：拖曳時畫的圈圈半徑（以畫面高度為 1）
+const FX = {
+  none:     { id: 0, name: '無', note: '不套效果，直接用原始畫面。拖「無」進畫面或點它，會把疊著的效果全部移除。', sizeLabel: '範圍', amt: .6, size: .5, center: false },
+  lens:     { id: 1, name: '鏡頭扭曲', note: '中心鼓起來，邊緣出現紅藍色散。在畫面上拖曳可以移動鏡頭。', sizeLabel: '鏡頭大小', amt: .6, size: .45, center: true, R: s => .12 + .63 * s },
+  blobs:    { id: 2, name: '流動色塊', note: '用一張會動的雜訊圖推動畫面，像液體一樣融化、捲動。', sizeLabel: '色塊大小', amt: .5, size: .55, center: false },
+  slice:    { id: 3, name: '切片位移', note: '畫面切成直條，每一條往拖曳點錯開。第一道就切，切片會發光、被拖尾拉長，追蹤框跟著切開的畫面走。', sizeLabel: '切片寬度', amt: .6, size: .35, center: true, bar: 'slice' },
+  slice2:   { id: 3, name: '切片・乾淨', note: '跟切片位移一樣，但最後一道才切：切面乾淨，拖尾和追蹤看的是切之前的畫面，追蹤框標在原位。', sizeLabel: '切片寬度', amt: .6, size: .35, center: true, bar: 'slice', late: true },
+  stretch:  { id: 4, name: '像素拉伸', note: '線的一側全部取線上的顏色，像素被拖成長條。第一道就拉，長條會發光、被拖尾拉長。拖曳移動那條線。', sizeLabel: '拉伸方向', amt: 1, size: .75, center: true, bar: 'stretch' },
+  stretch2: { id: 4, name: '拉伸・乾淨', note: '跟像素拉伸一樣，但最後一道才拉：長條乾淨，不會干擾拖尾和追蹤。拖曳移動那條線。', sizeLabel: '拉伸方向', amt: 1, size: .75, center: true, bar: 'stretch', late: true },
+  halftone: { id: 5, name: '網點', note: '最後一道才上網點：黑底排亮點，越亮的地方點越大，顏色跟著配色走。拖尾和追蹤看的是網點前的畫面，不會被點點干擾。', sizeLabel: '網點大小', amt: 1, size: .3, center: false, late: true },
+  warp:     { id: 6, name: '波形扭曲', note: '以拖曳點為圓心扭轉，再加一點波浪。', sizeLabel: '扭轉範圍', amt: .55, size: .6, center: true, R: s => .2 + .8 * s },
+  pixel:    { id: 7, name: '馬賽克', note: '同一格只取一個顏色，格子會跟著發光、被拖尾拉開。範圍拉滿是整張，調小只打在拖曳點附近。', sizeLabel: '影響範圍', amt: .35, size: 1, center: true, R: s => .12 + 1.48 * s }
+};
+
+const PALETTES = {
+  sixfold: { name: '深藍', note: 'Sixfold 主色：近黑底上的深藍熱感，只在邊緣破出顏色。',
+    stops: [[0,'#020308'],[.16,'#06102a'],[.34,'#0f2e6b'],[.52,'#2459b8'],[.7,'#5d95ea'],[.86,'#b6d3fb'],[1,'#f3f8ff']],
+    edgeA: '#ff3d8f', edgeB: '#ff9b45', edge: .55 },
+  bloom: { name: '粉橘', note: '第 9 張鳥和眼睛的配色：藍底，越熱越往粉、橘、淡黃走。',
+    stops: [[0,'#03040b'],[.18,'#0b1746'],[.34,'#2236a0'],[.48,'#5b49d0'],[.62,'#c35fc6'],[.76,'#ff7f8e'],[.9,'#ffbf73'],[1,'#fff4c8']],
+    edgeA: '#5ce1ff', edgeB: '#ffffff', edge: 0 },
+  iron: { name: '鐵虹', note: '熱像儀最常見的配色：黑、紫、紅、橘、黃、白。',
+    stops: [[0,'#000004'],[.14,'#1b0c41'],[.3,'#4f0c6b'],[.46,'#a52c60'],[.6,'#dd513a'],[.74,'#f68f17'],[.88,'#fbd039'],[1,'#fcffd8']],
+    edgeA: '#5ce1ff', edgeB: '#ffffff', edge: 0 },
+  white: { name: '白熱', note: '只留亮暗，方便看第 3、4 層在做什麼。',
+    stops: [[0,'#000000'],[1,'#ffffff']],
+    edgeA: '#ff358b', edgeB: '#5ce1ff', edge: 0 }
+};
+
+/* ---------- WebGL ---------- */
+const glc = document.createElement('canvas');
+const gl = glc.getContext('webgl2', { antialias: false, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
+if (!gl) { say('這個瀏覽器不支援 WebGL2，請改用新版 Safari、Chrome 或 Edge。', true); return; }
+
+const VS = '#version 300 es\nlayout(location=0) in vec2 p;\nout vec2 uv;\nvoid main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+const HEAD = '#version 300 es\nprecision highp float;\nin vec2 uv;\nout vec4 o;\n';
+// 第 1 層 影像效果：從素材取色（順便裁成畫面比例），輸出彩色
+const FS_FX = HEAD + `uniform sampler2D src;uniform vec2 sc,ctrl,res;uniform float fx,amt,size,t,aspect,flip;
+// 第一道從素材取色（要裁切、上下翻）；之後的每一道從上一道的結果取色
+vec3 samp(vec2 p){vec2 s=(p-.5)*sc+.5;if(flip>.5)s.y=1.-s.y;return texture(src,clamp(s,0.,1.)).rgb;}
+float h1(float n){return fract(sin(n*127.1)*43758.5453);}
+float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+return mix(mix(h2(i),h2(i+vec2(1.,0.)),f.x),mix(h2(i+vec2(0.,1.)),h2(i+vec2(1.,1.)),f.x),f.y);}
+float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}return s;}
+vec2 un(vec2 v){return vec2(v.x/aspect,v.y);}
+vec2 rot(vec2 v,float a){float c=cos(a),s=sin(a);return vec2(c*v.x-s*v.y,s*v.x+c*v.y);}
+void main(){
+int e=int(fx+.5);
+vec2 d=uv-ctrl;d.x*=aspect;float r=length(d);
+vec3 col;
+if(e==1){ // 鏡頭扭曲：圈內往中心取色＝鼓起來；紅藍各偏一點＝色散
+  float R=.12+.63*size;
+  float m=r<R?1.-amt*.8*(1.-r*r/(R*R)):1.;
+  vec2 dd=d*m;float ca=amt*.04*(.35+r/R);
+  col=vec3(0.);
+  for(int j=0;j<3;j++){float b=1.+float(j)*.012*amt;
+    col.r+=samp(ctrl+un(dd*(1.+ca)*b)).r;col.g+=samp(ctrl+un(dd*b)).g;col.b+=samp(ctrl+un(dd*(1.-ca)*b)).b;}
+  col/=3.;
+}else if(e==2){ // 流動色塊：兩層雜訊互相推，取色位置像液體一樣流
+  vec2 q=uv*vec2(aspect,1.)*mix(7.,1.2,size);
+  vec2 w1=vec2(fbm(q+t*.12),fbm(q+vec2(5.2,1.3)-t*.1));
+  vec2 w2=vec2(fbm(q+3.*w1+t*.08),fbm(q+3.*w1+vec2(8.3,2.8)-t*.09));
+  col=samp(uv+(w2-.5)*amt*.35);
+}else if(e==3){ // 切片位移（原版）：每一條直條往拖曳點錯開
+  float n=floor(mix(48.,4.,size));float i=floor(uv.x*n);float cx=(i+.5)/n;
+  float sh=-(cx-ctrl.x)*amt*.95+(h1(i)-.5)*amt*.06*sin(t*1.3+i);
+  col=samp(vec2(uv.x+sh,uv.y+(h1(i+17.)-.5)*amt*.05));
+}else if(e==4){ // 像素拉伸（原版）：線的一側都取線上的顏色
+  float a=size*6.2832;vec2 nr=vec2(cos(a),sin(a));
+  float dist=dot(d,nr);
+  col=samp(dist>0.?uv-un(nr*dist*amt):uv);
+}else if(e==6){ // 波形扭曲：以拖曳點為圓心扭轉，再加一點波浪
+  float R=.2+.8*size;
+  float tw=r<R?amt*3.5*pow(1.-r/R,2.)*(.75+.25*sin(t*.6)):0.;
+  vec2 p=ctrl+un(rot(d,tw));
+  p+=amt*.025*vec2(sin(p.y*9.+t*1.1),sin(p.x*7.-t*.9));
+  col=samp(p);
+}else if(e==7){ // 馬賽克：同一格取同一個顏色
+  float b=mix(3.,90.,amt);float R=.12+1.48*size;
+  vec2 bc=(floor(uv*res/b)+.5)*b;
+  col=r<R?samp(bc/res):samp(uv);
+}else col=samp(uv);
+o=vec4(col,1.);}`;
+// 亮暗調整：白底時先反轉，再切暗部、拉增益、調對比；顏色保留下來（只看亮暗的層會自己取亮度）
+const FS_LEVEL = HEAD + `uniform sampler2D src;uniform float black,gamma,inv,gain;
+void main(){vec3 c=texture(src,uv).rgb;c=mix(c,1.-c,inv);
+c=clamp((c-black)/max(1.-black,.001)*gain,0.,1.);o=vec4(pow(c,vec3(gamma)),1.);}`;
+const FS_TRAIL = HEAD + `uniform sampler2D cur,prev;uniform float decay,warp,t,mode,zoom,rays,aspect,reach;uniform vec2 drift,px,ctr;
+void main(){
+vec3 pv;
+if(mode>.5){
+  // 放射：在上一格裡往中心方向取樣，畫面內容就一格格往外推；離中心越遠推越多
+  vec2 d=uv-ctr;d.x*=aspect;
+  float r=length(d);vec2 dir=r>1e-5?d/r:vec2(0.);
+  float ang=atan(d.y,d.x);
+  float n=.5*sin(ang*7.+t*.6)+.3*sin(ang*13.-t*1.1)+.2*sin(ang*29.+t*2.3);
+  float z=zoom*max(0.,1.+rays*n*1.1);
+  vec2 dq=d*(1.-z);
+  vec3 acc=vec3(0.);
+  for(int i=0;i<4;i++){vec2 s=dq-dir*float(i)*px.y*1.4;s.x/=aspect;acc+=texture(prev,ctr+s).rgb;}
+  pv=acc*.25*reach; // 幅度：殘影在放射模式多淡一點，推出去的距離就短，速度不變
+}else{
+  float tt=t*.4;vec2 w=vec2(sin(uv.y*9.+tt*.9)+.5*sin(uv.y*23.-tt*1.7),cos(uv.x*8.-tt*.7)+.5*cos(uv.x*19.+tt*1.3));
+  vec2 q=uv-drift+w*warp*.0035;
+  pv=(texture(prev,q+px*vec2(.7,.7)).rgb+texture(prev,q+px*vec2(-.7,.7)).rgb+texture(prev,q+px*vec2(.7,-.7)).rgb+texture(prev,q-px*.7).rgb)*.25;
+}
+pv=pv*decay-.004;
+vec3 c=texture(cur,uv).rgb;
+o=vec4(max(c,pv),1.);}`;
+const FS_TRK = HEAD + `uniform sampler2D src;uniform vec2 px;uniform float mx;
+void main(){float s=0.,m=0.;for(int i=-2;i<2;i++)for(int j=-2;j<2;j++){float v=dot(texture(src,uv+(vec2(float(i),float(j))+.5)*px*2.).rgb,vec3(.2126,.7152,.0722));s+=v;m=max(m,v);}
+s*=.0625;float v=max(s,m*mx);o=vec4(v,v,v,1.);}`;
+const FS_DOWN = HEAD + `uniform sampler2D src;uniform vec2 px;
+void main(){vec3 s=vec3(0.);for(int i=-2;i<2;i++)for(int j=-2;j<2;j++)s+=texture(src,uv+(vec2(float(i),float(j))+.5)*px*2.).rgb;
+o=vec4(s*.0625,1.);}`;
+const FS_BLUR = HEAD + `uniform sampler2D src;uniform vec2 dir;
+void main(){vec3 s=texture(src,uv).rgb*.227;
+s+=(texture(src,uv+dir).rgb+texture(src,uv-dir).rgb)*.1945;
+s+=(texture(src,uv+dir*2.).rgb+texture(src,uv-dir*2.).rgb)*.1216;
+s+=(texture(src,uv+dir*3.).rgb+texture(src,uv-dir*3.).rgb)*.054;
+s+=(texture(src,uv+dir*4.).rgb+texture(src,uv-dir*4.).rgb)*.0162;
+o=vec4(s,1.);}`;
+const FS_COMP = HEAD + `uniform sampler2D trail,glow,lut;uniform float glowAmt,edgeAmt,grain,t,colorOn,pn,aspect;uniform vec3 edgeA,edgeB;uniform vec2 px,res;uniform vec4 pe[4];uniform vec2 pc[4];
+float L(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+vec2 rot(vec2 v,float a){float c=cos(a),s=sin(a);return vec2(c*v.x-s*v.y,s*v.x+c*v.y);}
+float h1(float n){return fract(sin(n*127.1)*43758.5453);}
+vec2 un(vec2 v){return vec2(v.x/aspect,v.y);}
+// 某一點最後的顏色：熱感配色＋光暈＋邊緣破色（網點要在格子中心再算一次，所以抽成函式）
+vec3 shade(vec2 p,float ek){
+vec3 tr=texture(trail,p).rgb;vec3 g=texture(glow,p).rgb;
+float h=L(tr)+L(g)*glowAmt;h=clamp(h/(1.+.25*h)*1.25,0.,1.);
+vec3 col;
+if(colorOn>.5)col=texture(lut,vec2(h,.5)).rgb;
+else{col=tr+g*glowAmt*.6;col=col/(1.+.2*col)*1.2;} // 關掉熱感配色：保留原本的顏色，光暈用加的
+float gx=L(texture(trail,p+vec2(px.x*2.,0.)).rgb)-L(texture(trail,p-vec2(px.x*2.,0.)).rgb);
+float gy=L(texture(trail,p+vec2(0.,px.y*2.)).rgb)-L(texture(trail,p-vec2(0.,px.y*2.)).rgb);
+float e=smoothstep(.05,.3,length(vec2(gx,gy)));
+vec3 ec=mix(edgeA,edgeB,smoothstep(.2,.8,h));
+return mix(col,ec*(.55+.6*h),e*edgeAmt*colorOn*.85*ek);}
+// 最後一道的座標變換：切片（3）、拉伸（4）
+vec2 remapP(int e,vec2 p,float a,float sz,vec2 c){
+  vec2 d=p-c;d.x*=aspect;
+  if(e==3){float n=floor(mix(48.,4.,sz));float i=floor(p.x*n);float cx=(i+.5)/n;
+    float sh=-(cx-c.x)*a*.95+(h1(i)-.5)*a*.06*sin(t*1.3+i);
+    return vec2(p.x+sh,p.y+(h1(i+17.)-.5)*a*.05);}
+  if(e==4){float an=sz*6.2832;vec2 nr=vec2(cos(an),sin(an));float dist=dot(d,nr);return dist>0.?p-un(nr*dist*a):p;}
+  return p;}
+void main(){
+// 疊加：從最後疊上去的效果往回推，算出這個像素該去哪裡取色；遇到網點就記下格子中心，之後兩個點一起往回推
+vec2 p=uv,q=uv;bool ht=false;float hA=0.,hCell=8.;vec2 hpp=vec2(0.),hcc=vec2(0.);
+int n=int(pn+.5);
+for(int i=3;i>=0;i--){
+  if(i>=n)continue;
+  int e=int(pe[i].x+.5);float a=pe[i].y,sz=pe[i].z;vec2 c=pc[i];
+  if(e==5){
+    if(!ht){ht=true;hA=a;hCell=3.+17.*sz;hpp=rot(p*res,.785398);hcc=(floor(hpp/hCell)+.5)*hCell;q=rot(hcc,-.785398)/res;}
+  }else{p=remapP(e,p,a,sz,c);if(ht)q=remapP(e,q,a,sz,c);}
+}
+vec3 col=shade(clamp(p,0.,1.),1.);
+if(ht){
+  // 網點：黑底上排亮點，格子轉 45 度；越亮點越大，點的顏色就是那一格的熱感色
+  vec3 cs=shade(clamp(q,0.,1.),.4);
+  float lum=max(cs.r,max(cs.g,cs.b));
+  float rad=sqrt(clamp(lum,0.,1.))*hCell*.66;
+  float cov=1.-smoothstep(rad-.9,rad+.9,length(hpp-hcc));
+  vec3 paper=colorOn>.5?texture(lut,vec2(0.,.5)).rgb:vec3(0.);
+  vec3 ink=cs/max(lum,.25)*min(1.,lum*1.6+.15);
+  col=mix(col,mix(paper,ink,cov),hA);
+}
+col+=(hash(uv*res+fract(t*7.)*91.)-.5)*grain*.14;
+float vg=smoothstep(1.15,.35,length((uv-.5)*vec2(res.x/res.y,1.))*1.25);
+col*=mix(1.,vg,.35);
+o=vec4(col,1.);}`;
+
+function compile(type, srcText) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, srcText); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const vsObj = compile(gl.VERTEX_SHADER, VS);
+function program(fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, vsObj); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name] = gl.getUniformLocation(p, info.name); }
+  return { p, u };
+}
+let PR;
+try {
+  PR = { fx: program(FS_FX), level: program(FS_LEVEL), trail: program(FS_TRAIL), down: program(FS_DOWN), trk: program(FS_TRK), blur: program(FS_BLUR), comp: program(FS_COMP) };
+} catch (e) { say('畫面效果初始化失敗：' + e.message, true); return; }
+
+const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+function newTex() {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function makeTarget(w, h, hf) {
+  const tex = newTex();
+  if (hf) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  return { tex, fb, w, h, ok };
+}
+function freeTarget(t) { if (t) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fb); } }
+let HF = !!gl.getExtension('EXT_color_buffer_float');
+if (HF) { const probe = makeTarget(4, 4, true); if (!probe.ok) HF = false; freeTarget(probe); }
+
+const srcTex = newTex();
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+const lutTex = newTex();
+
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function buildLut(stops) {
+  const a = new Uint8Array(256 * 4);
+  for (let i = 0; i < 256; i++) {
+    const x = i / 255; let k = 0;
+    while (k < stops.length - 2 && x > stops[k + 1][0]) k++;
+    const [p0, c0] = stops[k], [p1, c1] = stops[k + 1];
+    const f = Math.min(1, Math.max(0, (x - p0) / ((p1 - p0) || 1)));
+    const A = hexRgb(c0), B = hexRgb(c1);
+    for (let j = 0; j < 3; j++) a[i * 4 + j] = Math.round(A[j] + (B[j] - A[j]) * f);
+    a[i * 4 + 3] = 255;
+  }
+  return a;
+}
+let edgeA = [1, .3, .5], edgeB = [1, .6, .3];
+function applyPalette(key) {
+  P.palette = key; const pal = PALETTES[key];
+  document.documentElement.dataset.pal = key; // 牆色跟著配色走（CSS 裡的 [data-pal]）
+  gl.bindTexture(gl.TEXTURE_2D, lutTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, buildLut(pal.stops));
+  edgeA = hexRgb(pal.edgeA).map(v => v / 255); edgeB = hexRgb(pal.edgeB).map(v => v / 255);
+  $('palNote').textContent = pal.note;
+}
+
+/* ---------- sizes & targets ---------- */
+let W = 720, H = 960, TW = 96, TH = 128;
+let fxT, fxT2, curT, trailA, trailB, glowA, glowB, trkT, trkBuf, trkLab, trkStack;
+const tracks = [];
+let nextId = 1, move = 0;
+function clearTrails() {
+  gl.clearColor(0, 0, 0, 1);
+  for (const t of [trailA, trailB]) { gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb); gl.clear(gl.COLOR_BUFFER_BIT); }
+}
+function setSize() {
+  let a = 3, b = 4;
+  if (P.aspect === 'auto') {
+    // 自動：照素材本身的寬高比，太細長的夾在 2.5:1 以內，超出的部分裁掉
+    const s = srcSize();
+    if (s.w > 0 && s.h > 0) { const r = Math.min(2.5, Math.max(.4, s.w / s.h)); a = r; b = 1; }
+  } else [a, b] = P.aspect.split(':').map(Number);
+  const L = 1080, m = Math.max(a, b);
+  W = Math.round(L * a / m / 2) * 2; H = Math.round(L * b / m / 2) * 2;
+  glc.width = W; glc.height = H; out.width = W; out.height = H;
+  [fxT, fxT2, curT, trailA, trailB, glowA, glowB, trkT].forEach(freeTarget);
+  fxT = makeTarget(W, H, HF); fxT2 = makeTarget(W, H, HF); curT = makeTarget(W, H, HF); trailA = makeTarget(W, H, HF); trailB = makeTarget(W, H, HF);
+  const gw = Math.max(2, Math.round(W / 4)), gh = Math.max(2, Math.round(H / 4));
+  glowA = makeTarget(gw, gh, HF); glowB = makeTarget(gw, gh, HF);
+  TW = Math.round(W / 7.5); TH = Math.round(H / 7.5); trkT = makeTarget(TW, TH, false);
+  trkBuf = new Uint8Array(TW * TH * 4); trkLab = new Int32Array(TW * TH); trkStack = new Int32Array(TW * TH);
+  clearTrails(); tracks.length = 0;
+  if (typeof syncBg === 'function' && $('bgAuto')) syncBg();
+}
+
+function bindTex(unit, tex, loc) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(loc, unit); }
+function pass(pr, target, setup) {
+  gl.useProgram(pr.p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fb : null);
+  gl.viewport(0, 0, target ? target.w : W, target ? target.h : H);
+  setup(pr.u);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------- demo specimen ---------- */
+// 示範蝴蝶：右半邊的前翅、後翅各先畫進一張離屏畫布（只畫一次），每格再左右鏡像、輕輕開合貼上去。
+// 只用灰階，因為後面的熱感配色只看亮暗：越白越「熱」。
+const demo = document.createElement('canvas'); demo.width = 720; demo.height = 960;
+const dc = demo.getContext('2d');
+const FORE = [[4, -34], [58, -156, 172, -242, 270, -222], [296, -212, 296, -174, 276, -142], [256, -94, 244, -48, 224, -10], [152, -4, 72, -2, 4, -8]];
+const HIND = [[4, 0], [92, -6, 192, 10, 216, 54], [234, 90, 210, 144, 170, 180], [154, 194, 142, 204, 132, 218], [128, 254, 122, 286, 108, 304], [100, 290, 100, 254, 102, 220], [72, 192, 30, 122, 6, 42]];
+const WOX = 12, WOY = 262; // 離屏畫布原點（翅根）位置
+function bezPt(p0, s, t) {
+  const u = 1 - t;
+  return [u * u * u * p0[0] + 3 * u * u * t * s[0] + 3 * u * t * t * s[2] + t * t * t * s[4],
+          u * u * u * p0[1] + 3 * u * u * t * s[1] + 3 * u * t * t * s[3] + t * t * t * s[5]];
+}
+function segStart(segs, i) { const s = segs[i - 1]; return i === 1 ? s : [s[4], s[5]]; }
+function trace(c, segs) { c.beginPath(); c.moveTo(segs[0][0], segs[0][1]); for (let i = 1; i < segs.length; i++) c.bezierCurveTo(...segs[i]); c.closePath(); }
+// 沿著外緣取點，往翅膀中心收一點，用來放緣斑
+function marginDots(segs, from, to, step, inset, ctr) {
+  const pts = [];
+  for (let i = from; i <= to; i++) {
+    const p0 = segStart(segs, i);
+    for (let t = 0; t < 1; t += step) {
+      const [x, y] = bezPt(p0, segs[i], t), dx = ctr[0] - x, dy = ctr[1] - y, d = Math.hypot(dx, dy) || 1;
+      pts.push([x + dx / d * inset, y + dy / d * inset]);
+    }
+  }
+  return pts;
+}
+function paintWing(fore) {
+  const cv = document.createElement('canvas'); cv.width = 320; cv.height = 590;
+  const c = cv.getContext('2d'); c.translate(WOX, WOY);
+  const segs = fore ? FORE : HIND, ctr = fore ? [150, -112] : [128, 92];
+  trace(c, segs);
+  // 亮心放在翅膀中段：每片翅膀自成一個熱區，追蹤層才會分得出四片
+  const [gx, gy] = fore ? [128, -104] : [104, 84];
+  const g = c.createRadialGradient(gx, gy, 4, gx, gy, fore ? 210 : 175);
+  g.addColorStop(0, 'rgba(225,225,225,.88)'); g.addColorStop(.3, 'rgba(195,195,195,.78)');
+  g.addColorStop(.7, 'rgba(125,125,125,.55)'); g.addColorStop(1, 'rgba(80,80,80,.4)');
+  c.fillStyle = g; c.fill();
+  c.save(); trace(c, segs); c.clip();
+  // 翅脈：從翅根放射出去，前翅多一條橫脈
+  const veins = fore
+    ? [[270, -214, .5], [262, -160, .55], [248, -106, .55], [236, -58, .55], [224, -18, .5], [150, -2, .4]]
+    : [[214, 56, .5], [210, 118, .55], [176, 176, .55], [130, 220, .5], [70, 170, .45]];
+  c.strokeStyle = 'rgba(0,0,0,.62)'; c.lineCap = 'round';
+  for (const [x, y, k] of veins) {
+    c.lineWidth = 3.4; c.beginPath(); c.moveTo(6, fore ? -16 : 10);
+    c.quadraticCurveTo(x * k + (fore ? 10 : 0), y * k + (fore ? -18 : 14), x * .9, y * .9); c.stroke();
+  }
+  if (fore) { c.lineWidth = 2.6; c.beginPath(); c.moveTo(96, -112); c.quadraticCurveTo(130, -86, 150, -44); c.stroke(); }
+  else { c.lineWidth = 2.6; c.beginPath(); c.moveTo(70, 40); c.quadraticCurveTo(104, 58, 120, 96); c.stroke(); }
+  // 外緣深色帶
+  trace(c, segs); c.lineWidth = fore ? 30 : 26; c.strokeStyle = 'rgba(0,0,0,.72)'; c.stroke();
+  // 緣斑：外圈大點、內圈小點
+  c.fillStyle = 'rgba(255,255,255,.95)';
+  const outer = fore ? marginDots(FORE, 2, 3, .2, 7, ctr) : marginDots(HIND, 1, 3, .25, 7, ctr);
+  const inner = fore ? marginDots(FORE, 2, 3, .25, 15, ctr) : marginDots(HIND, 1, 3, .34, 15, ctr);
+  for (const [x, y] of outer) { c.beginPath(); c.arc(x, y, 3.4, 0, Math.PI * 2); c.fill(); }
+  for (const [x, y] of inner) { c.beginPath(); c.arc(x, y, 2, 0, Math.PI * 2); c.fill(); }
+  if (fore) {
+    // 前翅尖端的亮斑帶
+    c.fillStyle = 'rgba(255,255,255,.9)';
+    for (const [x, y, rx, ry, r] of [[214, -176, 15, 7, -.5], [232, -150, 13, 6, -.35], [196, -150, 11, 6, -.55], [246, -124, 10, 5, -.25]]) {
+      c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, Math.PI * 2); c.fill();
+    }
+  } else {
+    // 後翅眼紋：亮環、暗心、一點反光
+    const ex = 150, ey = 150;
+    c.fillStyle = 'rgba(0,0,0,.75)'; c.beginPath(); c.arc(ex, ey, 25, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.95)'; c.beginPath(); c.arc(ex, ey, 19, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(20,20,20,1)'; c.beginPath(); c.arc(ex, ey, 11, 0, Math.PI * 2); c.fill();
+    c.fillStyle = 'rgba(255,255,255,1)'; c.beginPath(); c.arc(ex - 3.5, ey - 4, 3.4, 0, Math.PI * 2); c.fill();
+  }
+  c.restore();
+  // 細亮邊，讓輪廓在熱感裡破色
+  trace(c, segs); c.lineWidth = 2.2; c.strokeStyle = 'rgba(255,255,255,.8)'; c.stroke();
+  return cv;
+}
+const WING_F = paintWing(true), WING_H = paintWing(false);
+function drawBody(c) {
+  // 觸角
+  c.strokeStyle = 'rgba(225,225,225,.9)'; c.lineWidth = 2.4; c.lineCap = 'round';
+  for (const s of [1, -1]) {
+    c.beginPath(); c.moveTo(s * 4, -70); c.bezierCurveTo(s * 14, -130, s * 40, -178, s * 66, -206); c.stroke();
+    c.fillStyle = 'rgba(240,240,240,.95)'; c.beginPath(); c.ellipse(s * 68, -208, 4.5, 7, s * .7, 0, Math.PI * 2); c.fill();
+  }
+  // 腹部：一節一節
+  for (let i = 0; i < 9; i++) {
+    const y = 18 + i * 15, rw = 10.5 - i * .75;
+    c.fillStyle = `rgba(${172 - i * 9},${172 - i * 9},${172 - i * 9},.95)`;
+    c.beginPath(); c.ellipse(0, y, rw, 9, 0, 0, Math.PI * 2); c.fill();
+  }
+  // 胸部
+  const g = c.createLinearGradient(-14, 0, 14, 0);
+  g.addColorStop(0, 'rgba(120,120,120,1)'); g.addColorStop(.5, 'rgba(225,225,225,1)'); g.addColorStop(1, 'rgba(120,120,120,1)');
+  c.fillStyle = g; c.beginPath(); c.ellipse(0, -18, 15, 36, 0, 0, Math.PI * 2); c.fill();
+  // 頭與複眼
+  c.fillStyle = 'rgba(205,205,205,1)'; c.beginPath(); c.arc(0, -64, 13, 0, Math.PI * 2); c.fill();
+  c.fillStyle = 'rgba(255,255,255,1)';
+  for (const s of [1, -1]) { c.beginPath(); c.arc(s * 8, -67, 5, 0, Math.PI * 2); c.fill(); }
+}
+function drawDemo(t) {
+  const c = dc, w = demo.width, h = demo.height;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#000'; c.fillRect(0, 0, w, h);
+  // 幾顆慢慢漂的光點，給追蹤層一點東西連線
+  for (let i = 0; i < 5; i++) {
+    const a = t * (.05 + i * .012) + i * 1.9;
+    const x = w * .5 + Math.cos(a * 1.3 + i) * w * .42, y = h * .5 + Math.sin(a + i * .6) * h * .4;
+    const r = 7 + (i % 3) * 5 + Math.sin(t * 1.2 + i) * 1.5;
+    const g = c.createRadialGradient(x, y, 0, x, y, r * 2.2);
+    g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(.4, 'rgba(210,210,210,.45)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.fillRect(x - r * 2.2, y - r * 2.2, r * 4.4, r * 4.4);
+  }
+  // 固定在畫面正中間，只有翅膀慢慢開合
+  const open = .8 + .2 * Math.sin(t * 1.4), lag = .8 + .2 * Math.sin(t * 1.4 - .35);
+  c.translate(w * .5, h * .5 - 36);
+  for (const side of [1, -1]) {
+    c.save(); c.scale(side * lag, 1); c.drawImage(WING_H, -WOX, -WOY); c.restore();
+  }
+  for (const side of [1, -1]) {
+    c.save(); c.scale(side * open, 1); c.drawImage(WING_F, -WOX, -WOY); c.restore();
+  }
+  drawBody(c);
+}
+
+/* ---------- source ---------- */
+let src = { kind: 'demo', el: demo, name: '示範素材：蝴蝶' };
+function srcSize() {
+  if (src.kind === 'video') return { w: src.el.videoWidth, h: src.el.videoHeight };
+  return { w: src.el.width, h: src.el.height };
+}
+function uploadSource() {
+  if (src.kind === 'video' && src.el.readyState < 2) return;
+  if (src.kind === 'image') { if (!src.dirty) return; src.dirty = false; }
+  gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src.el); }
+  catch (e) { say('這個檔案讀不到畫面，換一個試試。', true); }
+}
+let brightCheck = 0;
+function setSource(next) {
+  if (src.kind === 'video' && src !== next) { src.el.pause(); if (src.url) URL.revokeObjectURL(src.url); }
+  src = next; $('srcName').textContent = next.name;
+  const isDemo = next.kind === 'demo';
+  $('demoBtn').hidden = isDemo; $('fileTxt').textContent = isDemo ? '上傳素材' : '換素材';
+  bgLight = false; bgFloor = 0; darkP = 0; if (!isDemo) measureBg();
+  if (P.aspect === 'auto') setSize(); else { clearTrails(); tracks.length = 0; }
+  syncBg();
+  frame = 0; brightCheck = isDemo ? 0 : 45;
+  setRunning(true);
+}
+function waitVideo(v, url) {
+  return new Promise((res, rej) => {
+    const done = (fn) => () => { clearTimeout(timer); v.removeEventListener('loadeddata', okH); v.removeEventListener('error', badH); fn(); };
+    const okH = done(res), badH = done(() => rej(new Error('load')));
+    const timer = setTimeout(badH, 10000);
+    v.addEventListener('loadeddata', okH); v.addEventListener('error', badH);
+    v.src = url; v.load(); v.play().catch(() => {});
+  });
+}
+async function loadFile(file) {
+  if (!file) return;
+  const name = file.name || '未命名檔案';
+  say('載入中…');
+  try {
+    if (file.type.startsWith('image/')) {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+      bmp.close && bmp.close();
+      setSource({ kind: 'image', el: cv, dirty: true, name: '圖片：' + name });
+      say('圖片載入了。靜態圖一樣會拉出拖尾，嫌不夠長就把「拖尾長度」往右拉。');
+      return;
+    }
+    if (file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm)$/i.test(name)) {
+      const v = document.createElement('video');
+      v.muted = true; v.loop = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.preload = 'auto';
+      let url = URL.createObjectURL(file);
+      try { await waitVideo(v, url); }
+      catch (e) {
+        URL.revokeObjectURL(url); url = null;
+        const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+        await waitVideo(v, dataUrl);
+      }
+      setSource({ kind: 'video', el: v, url, name: '影片：' + name });
+      v.play().catch(() => {});
+      say('影片載入了。');
+      return;
+    }
+    say('這個檔案不是影片或圖片，換一個試試。', true);
+  } catch (e) {
+    say('這段影片在這裡播不起來。可以轉成 mp4（H.264）再試，或先用圖片。', true);
+  }
+}
+
+/* ---------- 素材底色：看邊框一圈的平均亮度判斷黑底或白底 ---------- */
+const probe = document.createElement('canvas'); probe.width = 32; probe.height = 32;
+const pctx = probe.getContext('2d', { willReadFrequently: true });
+let bgLight = false, bgFloor = 0, darkP = 0, inkDark = false;
+const probe2 = document.createElement('canvas'); probe2.width = 128; probe2.height = 128;
+const pctx2 = probe2.getContext('2d', { willReadFrequently: true });
+function invOn() { return P.bg === 'light' || (P.bg === 'auto' && bgLight); }
+function measureBg() {
+  if (src.kind === 'demo') return;
+  if (src.kind === 'video' && src.el.readyState < 2) return;
+  let d;
+  try { pctx.drawImage(src.el, 0, 0, 32, 32); d = pctx.getImageData(0, 0, 32, 32).data; } catch (e) { return; }
+  let s = 0, n = 0;
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+    if (x > 3 && x < 28 && y > 3 && y < 28) continue;
+    const i = (y * 32 + x) * 4;
+    s += .2126 * d[i] + .7152 * d[i + 1] + .0722 * d[i + 2]; n++;
+  }
+  const m = s / n / 255;
+  // 反轉後背景剩下的灰階直接切掉，米白、淺灰背景也能沉到全黑
+  bgFloor = Math.min(.5, Math.max(0, 1 - m - .03));
+  // 整張畫面最暗的 1%：白底素材裡通常就是杯緣、陰影
+  try {
+    pctx2.drawImage(src.el, 0, 0, 128, 128);
+    const e = pctx2.getImageData(0, 0, 128, 128).data, hist = new Uint32Array(256);
+    for (let i = 0; i < e.length; i += 4) hist[Math.round(.2126 * e[i] + .7152 * e[i + 1] + .0722 * e[i + 2])]++;
+    let acc = 0, k = 0; const want = 128 * 128 * .01;
+    while (k < 255 && (acc += hist[k]) < want) k++;
+    darkP = k / 255;
+  } catch (err) { darkP = 0; }
+  const next = bgLight ? m > .42 : m > .55;
+  if (next !== bgLight) { bgLight = next; if (P.bg === 'auto') clearTrails(); syncBg(); }
+}
+function syncBg() {
+  $('bgAuto').textContent = P.bg === 'auto' && src.kind !== 'demo' ? (bgLight ? '・白底' : '・黑底') : '';
+  $('meta').textContent = `${W}×${H}${invOn() ? '　亮暗反轉' : ''}`;
+}
+
+/* ---------- blob tracking ---------- */
+// 門檻也看相對亮度：滑桿 0～1 同時對應「這一格的中位亮度」到「最亮的那一小撮」之間。
+// 整張偏亮的素材，也只會抓比周圍更亮的地方；最大那塊大到像背景，就把門檻往上推再找一次。
+const thrRef = { lo: 0, hi: 255 }, trkHist = new Uint32Array(256); let thrEff = .45;
+// 一塊亮到佔掉兩成畫面、或框起來超過三成畫面，多半是背景或好幾個東西黏在一起
+const huge = b => b.area > .2 || (b.x1 - b.x0) * (b.y1 - b.y0) > .3;
+function findBlobs() {
+  const N = TW * TH, buf = trkBuf, hist = trkHist;
+  hist.fill(0); for (let i = 0; i < N; i++) hist[buf[i * 4]]++;
+  let acc = 0, med = 0; while (med < 255 && (acc += hist[med]) < N * .5) med++;
+  let top = 255; acc = 0; while (top > 0 && (acc += hist[top]) < N * .003) top--;
+  thrRef.lo += (med - thrRef.lo) * .15; thrRef.hi += (top - thrRef.hi) * .15;
+  const span = thrRef.hi - thrRef.lo, minPx = Math.max(3, P.minA / 100 * N);
+  if (span < 10) { thrEff = thrRef.hi / 255; return []; }
+  // 暗的素材照舊用絕對門檻；偏亮的素材，相對門檻會比較高，就用相對的
+  let thr = Math.max(P.thr * 255, thrRef.lo + span * P.thr), blobs = [];
+  for (let k = 0; k < 4; k++) {
+    blobs = scanBlobs(thr, minPx);
+    if (!blobs.some(huge)) break;
+    thr += (thrRef.hi - thr) * .4;
+  }
+  thrEff = thr / 255;
+  return blobs.filter(b => !huge(b)).slice(0, 12);
+}
+function scanBlobs(thr, minPx) {
+  const w = TW, h = TH, N = w * h, buf = trkBuf, lab = trkLab, st = trkStack;
+  lab.fill(0);
+  const blobs = []; let id = 0;
+  for (let i = 0; i < N; i++) {
+    if (lab[i] || buf[i * 4] < thr) continue;
+    id++; let sp = 0; st[sp++] = i; lab[i] = id;
+    let area = 0, sum = 0, sx = 0, sy = 0, x0 = w, y0 = h, x1 = 0, y1 = 0;
+    while (sp) {
+      const k = st[--sp], x = k % w, y = (k / w) | 0, v = buf[k * 4];
+      area++; sum += v; sx += x * v; sy += y * v;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0 && !lab[k - 1] && buf[(k - 1) * 4] >= thr) { lab[k - 1] = id; st[sp++] = k - 1; }
+      if (x < w - 1 && !lab[k + 1] && buf[(k + 1) * 4] >= thr) { lab[k + 1] = id; st[sp++] = k + 1; }
+      if (y > 0 && !lab[k - w] && buf[(k - w) * 4] >= thr) { lab[k - w] = id; st[sp++] = k - w; }
+      if (y < h - 1 && !lab[k + w] && buf[(k + w) * 4] >= thr) { lab[k + w] = id; st[sp++] = k + w; }
+    }
+    if (area < minPx) continue;
+    // readPixels rows start at the bottom; flip to top-down
+    blobs.push({
+      x0: x0 / w, x1: (x1 + 1) / w, y0: 1 - (y1 + 1) / h, y1: 1 - y0 / h,
+      cx: (sx / sum + .5) / w, cy: 1 - (sy / sum + .5) / h, area: area / N
+    });
+  }
+  blobs.sort((a, b) => b.area - a.area);
+  return blobs;
+}
+function updateTracks(blobs) {
+  const pairs = [];
+  for (let i = 0; i < tracks.length; i++) for (let j = 0; j < blobs.length; j++) {
+    const d = Math.hypot(tracks[i].cx - blobs[j].cx, tracks[i].cy - blobs[j].cy);
+    if (d < .18) pairs.push([d, i, j]);
+  }
+  pairs.sort((a, b) => a[0] - b[0]);
+  const usedT = new Set(), usedB = new Set(); let msum = 0, mn = 0;
+  for (const [d, i, j] of pairs) {
+    if (usedT.has(i) || usedB.has(j)) continue;
+    usedT.add(i); usedB.add(j); msum += d; mn++;
+    const t = tracks[i], b = blobs[j];
+    for (const key of ['x0', 'x1', 'y0', 'y1', 'cx', 'cy', 'area']) t[key] += (b[key] - t[key]) * .5;
+    t.missed = 0; t.age++;
+  }
+  for (let i = tracks.length - 1; i >= 0; i--) {
+    if (usedT.has(i)) continue;
+    tracks[i].missed++;
+    if (tracks[i].missed > P.hold) tracks.splice(i, 1);
+  }
+  for (let j = 0; j < blobs.length && tracks.length < 16; j++) {
+    if (usedB.has(j)) continue;
+    tracks.push(Object.assign({ id: nextId, code: String(10000 + Math.floor(Math.random() * 89999)), missed: 0, age: 0 }, blobs[j]));
+    nextId = nextId % 99 + 1;
+  }
+  move += ((mn ? msum / mn : 0) - move) * .1;
+}
+
+// 放射中心：亮度加權的重心（readPixels 的座標本來就是 uv，下為 0）
+const ctr = { x: .5, y: .5 };
+function updateCenter() {
+  let tx = .5, ty = .5;
+  if (P.centerMode === 'follow') {
+    let s = 0, sx = 0, sy = 0;
+    for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) {
+      const v = trkBuf[(y * TW + x) * 4] - 60;
+      if (v > 0) { s += v; sx += (x + .5) * v; sy += (y + .5) * v; }
+    }
+    if (s > 0) { tx = sx / s / TW; ty = sy / s / TH; }
+  }
+  ctr.x += (tx - ctr.x) * .08; ctr.y += (ty - ctr.y) * .08;
+}
+
+/* ---------- overlay ---------- */
+const pad2 = n => String(n).padStart(2, '0'), pad3 = n => String(n).padStart(3, '0');
+const thumbSt = new Map(); let thumbIds = [];
+function drawOverlay() {
+  const c = octx, u = Math.min(W, H) / 540;
+  const vis0 = tracks.filter(k => k.age >= 2);
+  // 去重疊：中心落在另一個更大框裡的小框不畫；正在消失的殘影框不能蓋掉現役的框
+  const vis = vis0.filter(k => !vis0.some(o => o !== k && o.area > k.area && !(o.missed && !k.missed) && k.cx > o.x0 && k.cx < o.x1 && k.cy > o.y0 && k.cy < o.y1));
+  const mono = (s) => `500 ${Math.round(s * u)}px "IBM Plex Mono", ui-monospace, Menlo, monospace`;
+  // 標註顏色跟著畫面亮暗走：暗畫面用白線，亮畫面用黑線；每筆都先描一圈反色的邊，局部亮暗交錯也看得到
+  const INK = inkDark ? '14,15,18' : '242,244,248', HAL = inkDark ? '255,255,255' : '0,0,0';
+  const ink = a => `rgba(${INK},${a})`, halo = a => `rgba(${HAL},${Math.min(.8, a)})`;
+  const stroke2 = (a, w) => { c.strokeStyle = halo(a * .85); c.lineWidth = w + 2.4 * u; c.stroke(); c.strokeStyle = ink(a); c.lineWidth = w; c.stroke(); };
+  const text2 = (t, x, y, a) => { c.strokeStyle = halo(a * .8); c.lineWidth = 3 * u; c.strokeText(t, x, y); c.fillStyle = ink(a); c.fillText(t, x, y); };
+  const dot2 = (x, y, r, a) => {
+    c.fillStyle = halo(a * .7); c.beginPath(); c.arc(x, y, r + 1.2 * u, 0, Math.PI * 2); c.fill();
+    c.fillStyle = ink(a); c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  };
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round'; c.textBaseline = 'alphabetic';
+
+  if (P.lines && vis.length > 1) {
+    const pts = vis.map(k => [k.cx * W, k.cy * H]), n = pts.length;
+    const inT = new Array(n).fill(false), d = new Array(n).fill(Infinity), par = new Array(n).fill(-1);
+    d[0] = 0;
+    c.beginPath();
+    for (let it = 0; it < n; it++) {
+      let b = -1;
+      for (let i = 0; i < n; i++) if (!inT[i] && (b < 0 || d[i] < d[b])) b = i;
+      inT[b] = true;
+      if (par[b] >= 0) { c.moveTo(pts[par[b]][0], pts[par[b]][1]); c.lineTo(pts[b][0], pts[b][1]); }
+      for (let i = 0; i < n; i++) if (!inT[i]) {
+        const dd = Math.hypot(pts[i][0] - pts[b][0], pts[i][1] - pts[b][1]);
+        if (dd < d[i]) { d[i] = dd; par[i] = b; }
+      }
+    }
+    stroke2(.6, .8 * u);
+  }
+
+  c.font = mono(8.5);
+  for (const k of (P.boxes ? vis : [])) {
+    const al = k.missed ? .45 : .95, p = 4 * u;
+    let x = k.x0 * W - p, y = k.y0 * H - p, w = (k.x1 - k.x0) * W + p * 2, h = (k.y1 - k.y0) * H + p * 2;
+    const mn = 22 * u;
+    if (w < mn) { x -= (mn - w) / 2; w = mn; }
+    if (h < mn) { y -= (mn - h) / 2; h = mn; }
+    c.beginPath(); c.rect(x, y, w, h); stroke2(al * .85, .9 * u);
+    const px = k.cx * W, py = k.cy * H;
+    if (P.labelMode === 'section') {
+      const text = 'SECTION ' + pad2(k.id), tw = c.measureText(text).width;
+      c.fillStyle = `rgba(${HAL},${.82 * al})`; c.fillRect(x + .5 * u, y + .5 * u, tw + 8 * u, 13 * u);
+      c.fillStyle = ink(al); c.fillText(text, x + 4.5 * u, y + 10 * u);
+    } else {
+      text2(`${k.code} T${pad2(k.id)}`, px + 6 * u, py - 5 * u, al);
+      c.font = mono(7);
+      text2(`${k.cx.toFixed(3)} ${k.cy.toFixed(3)}`, px + 6 * u, py + 6 * u, al * .6);
+      c.font = mono(8.5);
+    }
+  }
+
+  // 中心白點跟著「連線」開關：連線關掉才一起消失，追蹤框關掉時白點照樣留在端點上
+  if (P.lines) for (const k of vis) dot2(k.cx * W, k.cy * H, 2.2 * u, k.missed ? .45 : .95);
+
+  if (P.thumbs) {
+    // 特寫縮圖：長寬比跟著框走，大小跟著面積走，位置跟著主體的高低微微浮動；每一項都慢慢追上目標，不會跳
+    // 挑誰上縮圖要有一點黏性：已經在上面的，只要還排在前六大就留著，面積差一點點不會一直換人
+    const cand = vis.filter(k => !k.missed).sort((a, b) => b.area - a.area), near = cand.slice(0, 6);
+    thumbIds = thumbIds.filter(id => near.some(k => k.id === id));
+    for (const k of cand) { if (thumbIds.length >= 3) break; if (!thumbIds.includes(k.id)) thumbIds.push(k.id); }
+    const top = thumbIds.map(id => cand.find(k => k.id === id)).sort((a, b) => a.cx - b.cx);
+    const gap = 8 * u, base = H - 14 * u, live = new Set(); let x = 14 * u;
+    for (const k of top) {
+      const bw = Math.max((k.x1 - k.x0) * W, 10 * u), bh = Math.max((k.y1 - k.y0) * H, 10 * u);
+      const ar = Math.min(2.6, Math.max(.4, bw / bh));
+      const L = (34 + 44 * Math.min(1, Math.sqrt(k.area / .04))) * u;
+      const tw = ar >= 1 ? L : L * ar, th = ar >= 1 ? L / ar : L;
+      const lift = (.5 - k.cy) * 14 * u + Math.sin(T * .7 + k.id * 1.7) * 2 * u;
+      // 原圖裁切：框外多留 15%，比例補到跟縮圖一樣，不會變形
+      let sw = bw * 1.15, sh = bh * 1.15;
+      if (sw / sh > ar) sh = sw / ar; else sw = sh * ar;
+      const fit = Math.min(1, W / sw, H / sh); sw *= fit; sh *= fit;
+      const sx = Math.max(0, Math.min(W - sw, k.cx * W - sw / 2)), sy = Math.max(0, Math.min(H - sh, k.cy * H - sh / 2));
+      const tgt = { x, y: base - th - lift, w: tw, h: th, sx, sy, sw, sh };
+      let st = thumbSt.get(k.id);
+      if (!st) { st = Object.assign({ a: 0 }, tgt); st.y += 8 * u; thumbSt.set(k.id, st); }
+      st.tgt = tgt; live.add(k.id); x += tw + gap;
+    }
+    for (const [id, st] of thumbSt) {
+      const on = live.has(id);
+      if (on) for (const key of ['x', 'y', 'w', 'h', 'sx', 'sy', 'sw', 'sh']) st[key] += (st.tgt[key] - st[key]) * .12;
+      st.a += ((on ? 1 : 0) - st.a) * (on ? .12 : .25);
+      if (!on && st.a < .02) { thumbSt.delete(id); continue; }
+      c.globalAlpha = st.a;
+      c.drawImage(glc, st.sx, st.sy, st.sw, st.sh, st.x, st.y, st.w, st.h);
+      c.beginPath(); c.rect(st.x, st.y, st.w, st.h); stroke2(.55, .8 * u);
+      c.font = mono(6.5); text2(pad2(id), st.x, st.y - 4 * u, .6);
+      c.globalAlpha = 1;
+    }
+  } else { thumbSt.clear(); thumbIds = []; }
+
+  if (P.hud) {
+    let f, total;
+    if (src.kind === 'video' && src.el.duration) { f = Math.floor(src.el.currentTime * 30); total = Math.floor(src.el.duration * 30); }
+    else { total = 600; f = frame % total; }
+    const sec = src.kind === 'video' ? src.el.currentTime : (frame % total) / 60;
+    c.font = mono(9);
+    const lh = 12 * u, x0 = 14 * u, y0 = 22 * u;
+    text2(`TRACK ${pad2(vis.length)} BLOBS`, x0, y0, .9);
+    text2(`F ${pad3(f)}/${pad3(total)}  ${sec.toFixed(2)}S`, x0, y0 + lh, .9);
+    text2(`THR ${P.thr.toFixed(2)}/${thrEff.toFixed(2)}  MOVE ${Math.min(999, Math.round(move * 6000))}%  HOLD ${P.hold}`, x0, y0 + lh * 2, .9);
+    c.textAlign = 'right'; c.font = mono(7.5);
+    text2(`${W}x${H}  ${Math.round(fps)}FPS${invOn() ? '  INV' : ''}`, W - 14 * u, H - 14 * u, .65);
+  }
+  c.restore();
+}
+
+/* ---------- render loop ---------- */
+// 忽強忽弱：像呼吸一樣，一次 6.4 秒——吸 2.6 秒、停 0.6 秒、吐 2.6 秒、停 0.6 秒，每一段都慢進慢出
+function breath(t) {
+  const u = (t % 6.4) / 6.4, ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  if (u < .40625) return ease(u / .40625);
+  if (u < .5) return 1;
+  if (u < .90625) return 1 - ease((u - .5) / .40625);
+  return 0;
+}
+let T = 0, frame = 0, fps = 60, last = performance.now(), running = true, autoPause = reduce ? 90 : -1;
+function render(advance) {
+  if (advance) {
+    const s = srcSize(); let sc = [1, 1];
+    if (s.w && s.h) { const sa = s.w / s.h, da = W / H; sc = sa > da ? [da / sa, 1] : [1, sa / da]; }
+    // 第一道：形狀類效果依疊上去的順序一道一道跑（fxT、fxT2 輪流當輸入和輸出）；沒有效果時也要跑一次，負責裁切素材
+    const pre = stack.filter(it => !FX[it.key].late), steps = pre.length ? pre : [null];
+    let fxIn = srcTex;
+    steps.forEach((it, i) => {
+      const dst = i % 2 ? fxT2 : fxT;
+      pass(PR.fx, dst, u => {
+        bindTex(0, fxIn, u.src); gl.uniform2f(u.sc, i ? 1 : sc[0], i ? 1 : sc[1]); gl.uniform1f(u.flip, i ? 0 : 1);
+        gl.uniform1f(u.fx, it ? FX[it.key].id : 0); gl.uniform1f(u.amt, it ? it.amt * rampOf(it) : 0); gl.uniform1f(u.size, it ? it.size : 0);
+        gl.uniform1f(u.t, T); gl.uniform1f(u.aspect, W / H); gl.uniform2f(u.ctrl, it ? it.ctrl.x : .5, it ? it.ctrl.y : .5); gl.uniform2f(u.res, W, H);
+      });
+      fxIn = dst.tex;
+    });
+    pass(PR.level, curT, u => { bindTex(0, fxIn, u.src); const inv = invOn(), blk = Math.min(.9, P.black + (inv ? bgFloor : 0));
+      // 白底反轉時自動拉增益：素材裡最暗的那一小撮（杯緣、陰影）反轉後拉到接近全亮
+      const gain = inv ? Math.min(4, Math.max(1, .9 / Math.max(.05, (1 - darkP - blk) / (1 - blk)))) : 1;
+      gl.uniform1f(u.black, blk); gl.uniform1f(u.gamma, P.gamma); gl.uniform1f(u.inv, inv ? 1 : 0); gl.uniform1f(u.gain, gain); });
+    const a = P.angle * Math.PI / 180, sp = P.on2 ? P.speed * .0018 : 0;
+    let z = P.zoom * .03;
+    if (P.pulse) z *= .25 + 1.1 * breath(T);
+    pass(PR.trail, trailB, u => {
+      bindTex(0, curT.tex, u.cur); bindTex(1, trailA.tex, u.prev);
+      gl.uniform1f(u.decay, P.on2 ? P.decay : 0); gl.uniform1f(u.warp, P.on2 ? P.warp : 0); gl.uniform1f(u.t, T);
+      gl.uniform2f(u.drift, Math.cos(a) * sp, -Math.sin(a) * sp * (W / H)); gl.uniform2f(u.px, 1 / W, 1 / H);
+      gl.uniform1f(u.mode, P.trailMode === 'burst' ? 1 : 0); gl.uniform1f(u.zoom, z); gl.uniform1f(u.rays, P.rays); gl.uniform1f(u.reach, .86 + .14 * P.amp);
+      gl.uniform1f(u.aspect, W / H); gl.uniform2f(u.ctr, ctr.x, ctr.y);
+    });
+    [trailA, trailB] = [trailB, trailA];
+    if (P.on2 && P.glow > 0) {
+      pass(PR.down, glowA, u => { bindTex(0, trailA.tex, u.src); gl.uniform2f(u.px, 1 / W, 1 / H); });
+      for (const sp2 of [1, 2]) {
+        pass(PR.blur, glowB, u => { bindTex(0, glowA.tex, u.src); gl.uniform2f(u.dir, sp2 / glowA.w, 0); });
+        pass(PR.blur, glowA, u => { bindTex(0, glowB.tex, u.src); gl.uniform2f(u.dir, 0, sp2 / glowA.h); });
+      }
+    }
+    pass(PR.trk, trkT, u => { bindTex(0, curT.tex, u.src); gl.uniform2f(u.px, 1 / W, 1 / H); gl.uniform1f(u.mx, invOn() ? .9 : .6); });
+    gl.readPixels(0, 0, TW, TH, gl.RGBA, gl.UNSIGNED_BYTE, trkBuf);
+    updateTracks(findBlobs());
+    updateCenter();
+    let lm = 0; for (let i = 0; i < trkBuf.length; i += 4) lm += trkBuf[i];
+    lm /= TW * TH;
+    inkDark = inkDark ? lm > 120 : lm > 150;
+    if (brightCheck > 0 && --brightCheck === 0 && lm > 105) {
+      say(invOn() ? '反轉後畫面還是偏亮。把「切掉暗部」往右拉，或把「亮塊門檻」調高。' : '這段素材整體偏亮，框框容易黏成一大塊。白底素材到「素材底色」選白底，或把「亮塊門檻」調高。');
+    }
+  }
+  pass(PR.comp, null, u => {
+    bindTex(0, trailA.tex, u.trail); bindTex(1, glowA.tex, u.glow); bindTex(2, lutTex, u.lut);
+    gl.uniform1f(u.glowAmt, P.on2 ? P.glow : 0); gl.uniform1f(u.edgeAmt, P.edge); gl.uniform1f(u.grain, P.grain);
+    gl.uniform1f(u.t, T); gl.uniform1f(u.colorOn, P.on1 ? 1 : 0);
+    gl.uniform3fv(u.edgeA, edgeA); gl.uniform3fv(u.edgeB, edgeB);
+    gl.uniform2f(u.px, 1 / W, 1 / H); gl.uniform2f(u.res, W, H);
+    // 最後一道：乾淨版切片、乾淨版拉伸、網點，依疊上去的順序傳進去（最多 4 個）
+    const post = stack.filter(it => FX[it.key].late).slice(0, 4), pe = new Float32Array(16), pc = new Float32Array(8);
+    post.forEach((it, i) => { pe.set([FX[it.key].id, it.amt * rampOf(it), it.size, 0], i * 4); pc.set([it.ctrl.x, it.ctrl.y], i * 2); });
+    gl.uniform4fv(u['pe[0]'], pe); gl.uniform2fv(u['pc[0]'], pc); gl.uniform1f(u.pn, post.length); gl.uniform1f(u.aspect, W / H);
+  });
+  octx.drawImage(glc, 0, 0);
+  if (P.on3) drawOverlay();
+  syncHandles(); placeFxTags(); placeCap();
+}
+// 拖曳控制：玻璃元件疊在畫面上，位置跟著畫布實際顯示的範圍（扣掉 object-fit 的留黑）
+// 滑鼠移到畫面上、拖曳中、或剛切換效果時才顯示
+const HD = { box: $('handles'), ring: $('hRing'), edge: $('hRingEdge'), bar: $('hBar'), arm: $('hArm'), puck: $('hPuck') };
+let hdKey = '';
+function syncHandles() {
+  const f = FX[P.fx], show = !!f.center && (dragging || hovering || performance.now() < handleUntil);
+  HD.box.classList.toggle('show', show);
+  if (!f.center) return;
+  const r = out.getBoundingClientRect(), st = $('stage').getBoundingClientRect();
+  const k = Math.min(r.width / W, r.height / H), cw = W * k, ch = H * k;
+  const left = r.left - st.left + (r.width - cw) / 2, top = r.top - st.top + (r.height - ch) / 2;
+  const key = [left, top, cw, ch].map(v => v.toFixed(1)).join();
+  if (key !== hdKey) { hdKey = key; Object.assign(HD.box.style, { left: left + 'px', top: top + 'px', width: cw + 'px', height: ch + 'px' }); }
+  const px = P.ctrl.x * cw, py = (1 - P.ctrl.y) * ch;
+  HD.puck.style.transform = `translate(${px - 17}px,${py - 17}px)`;
+  const hasR = !!f.R; HD.ring.hidden = HD.edge.hidden = !hasR;
+  if (hasR) {
+    const d = 2 * f.R(P.size) * ch, t = `translate(${px - d / 2}px,${py - d / 2}px)`;
+    for (const el of [HD.ring, HD.edge]) { el.style.width = el.style.height = d + 'px'; el.style.transform = t; }
+  }
+  const bar = f.bar, hasBar = !!bar; HD.bar.hidden = !hasBar; HD.arm.hidden = bar !== 'stretch'; HD.puck.hidden = hasBar;
+  if (hasBar) {
+    // 拉伸：沿著那條線；切片：通過拖曳點的直線
+    const a = P.size * Math.PI * 2, th = bar === 'slice' ? Math.PI / 2 : Math.atan2(-Math.cos(a), -Math.sin(a));
+    const L = 2 * (cw + ch), x0 = px - Math.cos(th) * L / 2, y0 = py - Math.sin(th) * L / 2;
+    HD.bar.style.width = L + 'px'; HD.bar.style.transform = `translate(${x0}px,${y0 - 5}px) rotate(${th}rad)`;
+    if (bar === 'stretch') HD.arm.style.transform = `translate(${px}px,${py - 3}px) rotate(${Math.atan2(-Math.sin(a), Math.cos(a))}rad)`;
+  }
+}
+function loop(now) {
+  const dt = Math.min(.05, Math.max(.001, (now - last) / 1000)); last = now;
+  fps += (1 / dt - fps) * .05;
+  if (running) {
+    T += dt; frame++;
+    if (src.kind === 'demo') drawDemo(T * (reduce ? .5 : 1));
+    else if (src.kind === 'video' && P.bg !== 'dark' && frame % 30 === 1) measureBg();
+    uploadSource();
+    render(true);
+    if (autoPause > 0 && --autoPause === 0) { setRunning(false); say('你的系統設定了減少動態，畫面先停在這一格。按「繼續」就會動。'); }
+  } else {
+    render(false);
+  }
+  requestAnimationFrame(loop);
+}
+function setRunning(on) {
+  running = on;
+  $('playBtn').textContent = on ? '暫停' : '繼續';
+  if (src.kind === 'video') { if (on) src.el.play().catch(() => {}); else src.el.pause(); }
+}
+
+/* ---------- controls ---------- */
+function fmt(id, v) {
+  if (id === 'angle') return v + '°';
+  if (id === 'minA') return (v < 1 ? v.toFixed(2) : v.toFixed(1)) + '%';
+  if (id === 'hold') return String(v);
+  if (id === 'size' && FX[P.fx].bar === 'stretch') return Math.round(v * 360) + '°';
+  return v.toFixed(2);
+}
+document.querySelectorAll('.sl input[type=range]').forEach(inp => {
+  const o = $(inp.id + '_o');
+  const lo = parseFloat(inp.min), hi = parseFloat(inp.max);
+  const sync = () => { const v = parseFloat(inp.value); P[inp.id] = v; o.textContent = fmt(inp.id, v); inp.style.setProperty('--p', ((v - lo) / (hi - lo) * 100).toFixed(2) + '%'); };
+  inp.addEventListener('input', sync); sync();
+});
+for (const id of ['on1', 'on2', 'on3']) {
+  const el = $(id), g = $('g' + id.slice(2));
+  const sync = () => { P[id] = el.checked; g.classList.toggle('off', !el.checked); };
+  el.addEventListener('change', sync); sync();
+}
+for (const id of ['boxes', 'lines', 'thumbs', 'hud', 'pulse']) {
+  const el = $(id); el.addEventListener('change', () => { P[id] = el.checked; });
+}
+function chipGroup(id, key, onChange) {
+  const g = $(id);
+  g.addEventListener('click', e => {
+    const b = e.target.closest('button[data-v]'); if (!b) return;
+    g.querySelectorAll('button[data-v]').forEach(x => { const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+    P[key] = b.dataset.v; if (onChange) onChange(b.dataset.v);
+  });
+}
+const palBox = $('palette');
+for (const [key, pal] of Object.entries(PALETTES)) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'chip' + (key === P.palette ? ' on' : '');
+  b.dataset.v = key; b.setAttribute('aria-pressed', key === P.palette);
+  const sw = document.createElement('span'); sw.className = 'sw';
+  sw.style.background = `linear-gradient(90deg,${pal.stops.map(([p, c]) => `${c} ${Math.round(p * 100)}%`).join(',')})`;
+  b.dataset.tip = pal.note; b.append(sw, document.createTextNode(pal.name)); palBox.append(b);
+}
+chipGroup('palette', 'palette', key => {
+  applyPalette(key);
+  const edge = $('edge'); edge.value = PALETTES[key].edge; edge.dispatchEvent(new Event('input'));
+});
+chipGroup('labelMode', 'labelMode');
+chipGroup('trailMode', 'trailMode', mode => {
+  $('burstCtl').hidden = mode !== 'burst'; $('driftCtl').hidden = mode === 'burst';
+});
+chipGroup('centerMode', 'centerMode');
+chipGroup('bgMode', 'bg', () => { if (src.kind !== 'demo') measureBg(); clearTrails(); syncBg(); });
+
+// 拖曳移動效果中心。畫布用 object-fit 置中，要扣掉左右或上下的留黑
+let dragging = false, handleUntil = 0;
+function ctrlFromEvent(e) {
+  const r = out.getBoundingClientRect(), k = Math.min(r.width / W, r.height / H);
+  const cw = W * k, ch = H * k, ox = (r.width - cw) / 2, oy = (r.height - ch) / 2;
+  return { x: Math.min(1, Math.max(0, (e.clientX - r.left - ox) / cw)), y: Math.min(1, Math.max(0, 1 - (e.clientY - r.top - oy) / ch)) };
+}
+function setCtrl(e) { const c = ctrlFromEvent(e); P.ctrl.x = c.x; P.ctrl.y = c.y; handleUntil = performance.now() + 1200; }
+let hovering = false;
+out.addEventListener('pointerenter', () => { hovering = true; });
+out.addEventListener('pointerleave', () => { hovering = false; });
+out.addEventListener('pointerdown', e => {
+  const it = sel && FX[sel.key].center ? sel : live().filter(s => FX[s.key].center).slice(-1)[0];
+  if (!it) return; if (it !== sel) selectItem(it);
+  dragging = true; try { out.setPointerCapture(e.pointerId); } catch (err) {} setCtrl(e); });
+out.addEventListener('pointermove', e => { if (dragging) setCtrl(e); });
+const endDrag = () => { dragging = false; handleUntil = performance.now() + 1200; };
+out.addEventListener('pointerup', endDrag); out.addEventListener('pointercancel', endDrag);
+
+// 影像效果：可以疊加，最多 4 個。形狀類在第一道依疊上去的順序處理；名字有「乾淨」的和網點在最後一道處理
+const fxBox = $('fxPick');
+for (const [key, f] of Object.entries(FX)) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'chip';
+  b.dataset.v = key; b.setAttribute('aria-pressed', 'false'); b.textContent = f.name; b.dataset.tip = f.note; fxBox.append(b);
+}
+const MAX_FX = 4;
+const stack = [];   // 每一項：{ key, amt, size, ctrl: {x, y}, t0, dir }；dir = -1 表示正在淡出
+let sel = null;
+const live = () => stack.filter(it => it.dir > 0);
+// 強度漸入／漸出：剛疊上的效果從 0 長到設定值，移除時再縮回 0
+function rampOf(it) {
+  if (reduce) return it.dir > 0 ? 1 : 0;
+  const k = Math.min(1, (performance.now() - it.t0) / 700), e = 1 - Math.pow(1 - k, 3);
+  return it.dir > 0 ? e : 1 - e;
+}
+function selectItem(it) {
+  sel = it || null;
+  const key = sel ? sel.key : 'none', f = FX[key];
+  P.fx = key; P.ctrl = sel ? sel.ctrl : { x: .5, y: .5 };
+  $('fxNote').textContent = f.note;
+  $('fxCtl').hidden = !sel;
+  $('sizeLabel').textContent = f.sizeLabel;
+  if (sel) for (const id of ['amt', 'size']) { const el = $(id); el.value = sel[id]; el.dispatchEvent(new Event('input')); }
+  if (sel && f.center) handleUntil = performance.now() + 1500;
+  syncFxUi();
+}
+// 強度、範圍兩條滑桿調的是目前選中的那一個效果
+for (const id of ['amt', 'size']) $(id).addEventListener('input', () => { if (sel) sel[id] = P[id]; });
+function addFx(key, ctrl) {
+  if (key === 'none') { clearFx(); return 'cleared'; }
+  let it = live().find(x => x.key === key);
+  if (it) { if (ctrl) { it.ctrl.x = ctrl.x; it.ctrl.y = ctrl.y; } selectItem(it); return 'moved'; }
+  if (live().length >= MAX_FX) { say(`最多疊 ${MAX_FX} 個效果，先移除一個再加。`, true); return 'full'; }
+  const f = FX[key];
+  it = { key, amt: f.amt, size: f.size, ctrl: { x: ctrl ? ctrl.x : .5, y: ctrl ? ctrl.y : .5 }, t0: performance.now(), dir: 1 };
+  stack.push(it); selectItem(it); return 'added';
+}
+function removeItem(it, quiet) {
+  if (!it || it.dir < 0) return;
+  it.dir = -1; it.t0 = performance.now();
+  setTimeout(() => { const i = stack.indexOf(it); if (i >= 0) stack.splice(i, 1); syncFxUi(); }, reduce ? 0 : 720);
+  if (sel === it) selectItem(live().slice(-1)[0]); else syncFxUi();
+  if (!quiet) say(`移除了「${FX[it.key].name}」。`);
+}
+function clearFx() { const l = live(); l.forEach(it => removeItem(it, true)); if (l.length) say('疊著的效果全部移除了。'); }
+// 方塊、說明、畫面上的標籤都跟著堆疊更新
+function syncFxUi() {
+  const l = live(), keys = new Set(l.map(it => it.key));
+  fxBox.querySelectorAll('button[data-v]').forEach(x => {
+    const k = x.dataset.v, on = k === 'none' ? keys.size === 0 : keys.has(k);
+    x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); x.classList.toggle('sel', !!sel && sel.key === k);
+  });
+  $('fxStack').textContent = l.length ? `疊了 ${l.length} 個：${l.map(it => FX[it.key].name).join(' → ')}${l.length > 1 ? '。點方塊或畫面上的標籤，選要調哪一個。' : ''}` : '';
+  out.classList.toggle('drag-ok', l.some(it => FX[it.key].center));
+  const box = $('fxTags'); box.textContent = '';
+  for (const it of l) {
+    const tag = document.createElement('div'); tag.className = 'fx-tag' + (it === sel ? ' sel' : '');
+    const nm = document.createElement('button'); nm.type = 'button'; nm.className = 'fx-tag-name'; nm.textContent = FX[it.key].name; nm.title = '選這個效果來調整';
+    nm.addEventListener('click', () => selectItem(it));
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'fx-tag-x'; x.textContent = '×'; x.setAttribute('aria-label', '移除' + FX[it.key].name); x.title = '移除';
+    x.addEventListener('click', () => removeItem(it));
+    tag.append(nm, x); box.append(tag);
+  }
+}
+// 海報下方的說明列，貼著畫面實際顯示的範圍
+function placeCap() { const b = canvasBox(), c = $('cap'); c.style.left = b.left + 'px'; c.style.top = (b.top + b.ch + 8) + 'px'; c.style.width = b.cw + 'px'; }
+function placeFxTags() { const b = canvasBox(), box = $('fxTags'); box.style.left = (b.left + b.cw - 12) + 'px'; box.style.top = (b.top + 12) + 'px'; }
+// 點方塊：沒疊過就疊上去；疊過但沒選中，就選它來調整；已經選中的再點一次，就取消（移除）；點「無」全部移除
+fxBox.addEventListener('click', e => {
+  const b = e.target.closest('button[data-v]'); if (!b) return;
+  const k = b.dataset.v;
+  if (k === 'none') { clearFx(); return; }
+  const it = live().find(x => x.key === k);
+  if (!it) addFx(k); else if (sel === it) removeItem(it); else selectItem(it);
+});
+selectItem(null);
+// 畫布實際顯示的範圍（相對於 stage，扣掉 object-fit 的留黑）
+function canvasBox() {
+  const r = out.getBoundingClientRect(), st = $('stage').getBoundingClientRect();
+  const k = Math.min(r.width / W, r.height / H), cw = W * k, ch = H * k;
+  return { left: r.left - st.left + (r.width - cw) / 2, top: r.top - st.top + (r.height - ch) / 2, cw, ch, sx: st.left, sy: st.top };
+}
+function overCanvas(e, b) {
+  const x = e.clientX - b.sx - b.left, y = e.clientY - b.sy - b.top;
+  return x >= 0 && y >= 0 && x <= b.cw && y <= b.ch;
+}
+// 拖曳：按住方塊移動超過 6px 才算開始拖，沒移動就當成一般點擊
+let fxDrag = null, fxSuppressClick = false;
+fxBox.addEventListener('click', e => { if (fxSuppressClick) { e.stopImmediatePropagation(); e.preventDefault(); fxSuppressClick = false; } }, true);
+fxBox.addEventListener('pointerdown', e => {
+  const b = e.target.closest('button[data-v]'); if (!b || e.button !== 0) return;
+  fxDrag = { key: b.dataset.v, btn: b, x0: e.clientX, y0: e.clientY, id: e.pointerId, started: false, ghost: null };
+});
+function placeGhost(g, x, y, tilt) { g.style.transform = `translate(${x}px,${y}px) translate(-50%,-50%) rotate(${tilt}deg) scale(${tilt ? 1.04 : .9})`; }
+addEventListener('pointermove', e => {
+  if (!fxDrag || e.pointerId !== fxDrag.id) return;
+  if (!fxDrag.started) {
+    if (Math.hypot(e.clientX - fxDrag.x0, e.clientY - fxDrag.y0) < 6) return;
+    fxDrag.started = true; fxSuppressClick = true;
+    try { fxDrag.btn.setPointerCapture(e.pointerId); } catch (err) {}
+    const f = FX[fxDrag.key], g = document.createElement('div');
+    g.className = 'fx-ghost';
+    g.innerHTML = '<span></span><small></small>';
+    g.firstChild.textContent = f.name; g.lastChild.textContent = fxDrag.key === 'none' ? 'DROP TO CLEAR' : 'DROP TO STACK';
+    document.body.append(g); fxDrag.ghost = g;
+    fxDrag.btn.classList.add('lifting'); document.body.classList.add('fx-dragging');
+    $('fxZoneTxt').textContent = fxDrag.key === 'none' ? '放開就移除全部效果' : live().some(x => x.key === fxDrag.key) ? `放開就把「${f.name}」移到這裡` : `放開就疊上「${f.name}」`;
+    $('fxZone').classList.add('on');
+  }
+  placeGhost(fxDrag.ghost, e.clientX, e.clientY, -3);
+  const b = canvasBox(), z = $('fxZone');
+  Object.assign(z.style, { left: b.left + 'px', top: b.top + 'px', width: b.cw + 'px', height: b.ch + 'px' });
+  z.classList.toggle('armed', overCanvas(e, b));
+});
+function endFxDrag(e, cancelled) {
+  const d = fxDrag; fxDrag = null;
+  if (!d) return;
+  setTimeout(() => { fxSuppressClick = false; }, 0);
+  if (!d.started) return;
+  const b = canvasBox(), hit = !cancelled && overCanvas(e, b), g = d.ghost;
+  d.btn.classList.remove('lifting'); document.body.classList.remove('fx-dragging');
+  $('fxZone').classList.remove('on', 'armed');
+  if (hit) {
+    g.remove();
+    if (d.key === 'none') { clearFx(); return; }
+    const res = addFx(d.key, FX[d.key].center ? ctrlFromEvent(e) : null);
+    if (res === 'full') return;
+    handleUntil = performance.now() + 1500;
+    const nm = FX[d.key].name;
+    say(res === 'moved' ? `「${nm}」本來就疊著，中心移到你放開的位置。` : FX[d.key].center ? `疊上「${nm}」，中心就在你放開的位置；在畫面上拖曳可以再移動。` : `疊上「${nm}」。`);
+  } else {
+    // 沒放進畫面：方塊飛回原位再消失
+    const r = d.btn.getBoundingClientRect();
+    g.classList.add('back'); placeGhost(g, r.left + r.width / 2, r.top + r.height / 2, 0); g.style.opacity = '0';
+    setTimeout(() => g.remove(), 380);
+  }
+}
+addEventListener('pointerup', e => { if (fxDrag && e.pointerId === fxDrag.id) endFxDrag(e, false); });
+addEventListener('pointercancel', e => { if (fxDrag && e.pointerId === fxDrag.id) endFxDrag(e, true); });
+$('fxOnly').addEventListener('click', () => {
+  for (const id of ['on1', 'on2', 'on3']) { const el = $(id); el.checked = false; el.dispatchEvent(new Event('change')); }
+  say('第 2–4 層關掉了，現在看到的是效果本身。要疊回熱感，把那幾層的開關打開。');
+});
+
+function resetAll(quiet) {
+  const pick = (gid, v) => { const b = document.querySelector(`#${gid} button[data-v="${v}"]`); if (b && !b.classList.contains('on')) b.click(); };
+  pick('palette', DEFAULTS.palette);
+  stack.length = 0; selectItem(null);
+  document.querySelectorAll('.sl input[type=range]').forEach(inp => { inp.value = DEFAULTS[inp.id]; inp.dispatchEvent(new Event('input')); });
+  for (const id of ['on1', 'on2', 'on3', 'boxes', 'lines', 'thumbs', 'hud', 'pulse']) { const el = $(id); el.checked = DEFAULTS[id]; el.dispatchEvent(new Event('change')); }
+  for (const [gid, key] of [['labelMode', 'labelMode'], ['trailMode', 'trailMode'], ['centerMode', 'centerMode'], ['bgMode', 'bg']]) pick(gid, DEFAULTS[key]);
+  clearTrails(); tracks.length = 0;
+  if (quiet !== true) say('全部參數回到預設值，素材沒有換。');
+  setMood(quiet === true ? curMood : null);
+}
+$('resetBtn').addEventListener('click', () => resetAll(false));
+
+/* ---------- 心情：一鍵套一整組參數 ---------- */
+// 每一組都是「配色 + 拖尾 + 幾條滑桿 + 要疊的效果」。值的名字就是控制項的 id。
+const MOODS = {
+  // 依名稱長度由短到長排，清單右緣是一道整齊的斜線；滑鼠停著會出現原本的中文名
+  // 每一組都刻意只用一兩個主角：有的靠配色，有的靠拖尾，有的靠疊效果，有的靠把某幾層關掉
+  tv:    { name: 'CRT', zh: '老電視：畫面往右飄、顆粒很重，乾淨版切片不會弄髒追蹤，上緣一條被拉開的訊號帶，像磁頭沒對準的錄影帶', sw: 'linear-gradient(90deg,#4f0c6b,#f68f17,#fcffd8)', palette: 'iron', trailMode: 'drift', decay: .88, angle: 0, speed: .45, warp: .5, glow: .45, gamma: 1.15, grain: .8, edge: .25, thr: .5,
+           labelMode: 'code', boxes: true, lines: false, thumbs: false, hud: true,
+           fx: [['slice2', { amt: .35, size: .3 }, { x: .5, y: .5 }], ['stretch2', { amt: .6, size: .25 }, { x: .5, y: .82 }]] },
+  lava:  { name: 'LAVA', zh: '熔岩：整張畫面像在慢慢流動的鐵水，呼吸式放射，不畫任何標註', sw: 'linear-gradient(90deg,#1b0c41,#dd513a,#fbd039)', palette: 'iron', trailMode: 'burst', centerMode: 'follow', decay: .975, zoom: .18, amp: .8, rays: .25, pulse: true,
+           glow: 1.3, black: .14, gamma: 1.7, edge: 0, grain: .15, on3: false,
+           fx: [['blobs', { amt: .85, size: .75 }], ['warp', { amt: .3, size: .9 }, { x: .5, y: .5 }]] },
+  sonar: { name: 'SONAR', zh: '聲納：從畫面中央一圈圈往外推的放射紋，隨呼吸忽強忽弱，只留連線和座標', sw: 'linear-gradient(90deg,#020308,#0f2e6b,#5d95ea)', palette: 'sixfold', trailMode: 'burst', centerMode: 'center', decay: .96, zoom: .35, amp: .7, rays: .95, pulse: true,
+           glow: .8, black: .1, gamma: 1.3, edge: .2, grain: .1, thr: .5, hold: 14, labelMode: 'code', boxes: false, lines: true, thumbs: false, hud: true, fx: [] },
+  glitch:{ name: 'GLITCH', zh: '訊號干擾：切片加一塊馬賽克，拖尾很短，像訊號不穩的螢幕', sw: 'linear-gradient(90deg,#0b1746,#c35fc6,#5ce1ff)', palette: 'bloom', trailMode: 'drift', decay: .84, angle: 0, speed: .2, warp: .1, glow: .45, gamma: 1.2, grain: .55, edge: 0,
+           labelMode: 'code', boxes: true, lines: true, thumbs: false, hud: true,
+           fx: [['slice', { amt: .4, size: .18 }, { x: .5, y: .5 }], ['pixel', { amt: .22, size: .15 }, { x: .62, y: .42 }]] },
+  spec:  { name: 'SPECIMEN', zh: '標本：黑白、幾乎沒有拖尾，一顆放大鏡壓在主體上，框和縮圖留很久，像博物館的標本卡', sw: 'linear-gradient(90deg,#000,#777,#fff)', palette: 'white', trailMode: 'drift', decay: .7, speed: 0, warp: 0, glow: .25, black: .05, gamma: 1.1, edge: 0, grain: .08,
+           thr: .4, minA: .2, hold: 20, labelMode: 'section', boxes: true, lines: true, thumbs: true, hud: true,
+           fx: [['lens', { amt: .3, size: .4 }, { x: .5, y: .55 }]] },
+  neg:   { name: 'NEGATIVE', zh: '底片：亮暗反過來，白紙上的黑影，不要拖尾也不要光暈，只留顆粒和座標', sw: 'linear-gradient(90deg,#fff,#999,#111)', palette: 'white', bg: 'light', on2: false, black: 0, gamma: 1, edge: 0, grain: .3,
+           labelMode: 'code', boxes: true, lines: false, thumbs: false, hud: true, fx: [] },
+  melt:  { name: 'MELTDOWN', zh: '融化中：流動色塊把畫面推成液體，下半部再加一圈扭轉像往下滴，放射跟著呼吸慢慢脹縮', sw: 'linear-gradient(90deg,#0b1746,#5b49d0,#ffbf73)', palette: 'bloom', trailMode: 'burst', centerMode: 'follow', decay: .96, zoom: .22, amp: .65, rays: .15, pulse: true,
+           glow: 1, gamma: 1.5, grain: .2, hold: 12, labelMode: 'section', boxes: true, lines: true, thumbs: true, hud: true,
+           fx: [['blobs', { amt: .8, size: .5 }], ['warp', { amt: .45, size: .7 }, { x: .5, y: .3 }]] },
+  print: { name: 'NEWSPRINT', zh: '報紙網點：黑白、大網點、幾乎不動，沒有參數字也沒有縮圖，只剩 SECTION 框，像報紙上的照片', sw: 'linear-gradient(90deg,#17150f,#8a8578,#fffdf6)', palette: 'white', trailMode: 'drift', decay: .8, speed: .05, warp: .1, glow: .3, black: .06, gamma: 1.2, edge: 0, grain: 0,
+           labelMode: 'section', boxes: true, lines: false, thumbs: false, hud: false,
+           fx: [['halftone', { amt: 1, size: .4 }]] },
+  blue:  { name: 'BLUEPRINT', zh: '藍圖：關掉拖尾和光暈，只剩深藍底上的亮部，加一層很細的網點和完整的標註，像工程圖', sw: 'linear-gradient(90deg,#06102a,#2459b8,#b6d3fb)', palette: 'sixfold', on2: false, black: .08, gamma: 1.15, edge: .4, grain: .05,
+           thr: .3, minA: .3, hold: 10, labelMode: 'section', boxes: true, lines: true, thumbs: true, hud: true,
+           fx: [['halftone', { amt: .4, size: .1 }]] },
+  neon:  { name: 'NEON BLOOM', zh: '霓虹花火：放射最快最亮，隨呼吸一陣一陣炸開，鏡頭把中心鼓起來帶出色散；不畫框，只留連線和縮圖', sw: 'linear-gradient(90deg,#2236a0,#ff7f8e,#fff4c8)', palette: 'bloom', trailMode: 'burst', centerMode: 'follow', decay: .965, zoom: .6, amp: .55, rays: .7, pulse: true,
+           glow: 1.2, grain: .15, edge: 0, labelMode: 'code', boxes: false, lines: true, thumbs: true, hud: true,
+           fx: [['lens', { amt: .5, size: .5 }, { x: .5, y: .52 }]] },
+  watch: { name: 'NIGHT WATCH', zh: '深夜監視：不疊任何效果，主角是追蹤本身。放射收斂、顆粒加重，座標碼標籤、縮圖、參數字全開，像監視器的夜間畫面', sw: 'linear-gradient(90deg,#06102a,#2459b8,#f3f8ff)', palette: 'sixfold', trailMode: 'burst', centerMode: 'follow', decay: .92, zoom: .3, amp: .3, rays: .3,
+           glow: .6, gamma: 1.3, grain: .45, edge: .55, hold: 8, labelMode: 'code', boxes: true, lines: true, thumbs: true, hud: true, fx: [] }
+};
+let curMood = null;
+const moodBox = $('moods');
+for (const [key, m] of Object.entries(MOODS)) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'mood'; b.dataset.v = key;
+  const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = m.sw;
+  const i = document.createElement('span'); i.className = 'i'; i.textContent = pad2(moodBox.children.length + 1);
+  const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = m.name; b.dataset.tip = m.zh;
+  b.append(i, nm, sw); moodBox.append(b);
+}
+function setMood(key) {
+  curMood = key;
+  moodBox.querySelectorAll('.mood').forEach(b => b.classList.toggle('on', b.dataset.v === key));
+}
+function applyValues(v) {
+  const pick = (gid, val) => { const b = document.querySelector(`#${gid} button[data-v="${val}"]`); if (b && !b.classList.contains('on')) b.click(); };
+  if (v.palette) pick('palette', v.palette);
+  for (const [gid, key] of [['trailMode', 'trailMode'], ['centerMode', 'centerMode'], ['labelMode', 'labelMode'], ['bgMode', 'bg']]) if (v[key]) pick(gid, v[key]);
+  document.querySelectorAll('.sl input[type=range]').forEach(inp => {
+    if (inp.id === 'amt' || inp.id === 'size' || !(inp.id in v)) return;
+    inp.value = v[inp.id]; inp.dispatchEvent(new Event('input'));
+  });
+  for (const id of ['on1', 'on2', 'on3', 'boxes', 'lines', 'thumbs', 'hud', 'pulse']) {
+    if (!(id in v)) continue; const el = $(id); el.checked = v[id]; el.dispatchEvent(new Event('change'));
+  }
+  if (v.fx) {
+    clearFx();
+    for (const [key, opt, ctrl] of v.fx) {
+      if (addFx(key, ctrl || null) === 'full') break;
+      const it = sel; if (it && opt) { Object.assign(it, opt); selectItem(it); }
+    }
+    if (!v.fx.length) selectItem(null);
+  }
+}
+moodBox.addEventListener('click', e => {
+  const b = e.target.closest('.mood'); if (!b) return;
+  const key = b.dataset.v, m = MOODS[key];
+  resetAll(true); applyValues(m); setMood(key);
+  say(`MOOD · ${m.name}`);
+});
+/* ---------- 骰子：每擲一次，整組參數從預設值重骰，所以不會越疊越亂 ---------- */
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pickOne = arr => arr[Math.floor(Math.random() * arr.length)];
+// 每一組都有名字：時間 ＋ 東西。像「颱風天的監視器」「凌晨三點的霓虹」
+const WHEN = ['thursday night', '3am', 'blackout', 'typhoon day', 'after the rain', 'lunch break', 'last train', 'finals week', 'before dawn', 'five minutes to work', 'after the show', 'moving day'];
+const WHAT = ['thermal', 'neon', 'cctv', 'old tv', 'static', 'poster', 'x-ray', 'dream', 'radar', 'highlighter', 'elevator mirror', 'night market'];
+const ROLL_LINES = ['骰出來的，不滿意再擲一次。', '這組有點太狂，但我不想收回。', '這組不錯，記得存 png。', '牆的顏色也換了，有注意到嗎。', '擲到喜歡為止，沒有次數限制。', '想微調就切到進階。'];
+const rolls = []; let rollAt = -1; // 歷史：每一組的參數；rollAt 是現在站在哪一組
+const pad3r = n => String(n).padStart(3, '0');
+function rollValues() {
+  const burst = Math.random() < .6;
+  const v = {
+    name: pickOne(WHEN) + ' ' + pickOne(WHAT),
+    palette: pickOne(['sixfold', 'bloom', 'iron', 'white']), trailMode: burst ? 'burst' : 'drift',
+    decay: +rnd(.86, .975).toFixed(3), glow: +rnd(.3, 1.2).toFixed(2), grain: +rnd(0, .7).toFixed(2), gamma: +rnd(.9, 1.8).toFixed(2),
+    zoom: +rnd(.15, .7).toFixed(2), amp: +rnd(.2, .7).toFixed(2), rays: +rnd(0, .8).toFixed(2), pulse: Math.random() < .3,
+    angle: Math.round(rnd(0, 72)) * 5, speed: +rnd(.1, .6).toFixed(2), warp: +rnd(.1, .8).toFixed(2),
+    labelMode: pickOne(['section', 'code']), thumbs: Math.random() < .7,
+    fx: []
+  };
+  const pool = ['lens', 'blobs', 'slice', 'stretch2', 'halftone', 'warp', 'pixel'];
+  const n = pickOne([0, 1, 1, 2]);
+  for (let i = 0; i < n; i++) {
+    const key = pickOne(pool.filter(k => !v.fx.some(f => f[0] === k))), f = FX[key];
+    v.fx.push([key, { amt: +rnd(f.amt * .6, Math.min(1, f.amt * 1.2)).toFixed(2), size: +rnd(.2, .8).toFixed(2) }, f.center ? { x: rnd(.3, .7), y: rnd(.3, .7) } : null]);
+  }
+  return v;
+}
+function showLook(i) {
+  const has = i >= 0, v = has ? rolls[i] : null;
+  $('lookN').textContent = pad3r(has ? i + 1 : 0);
+  $('lookName').textContent = has ? v.name : 'not rolled yet · butterfly warm-up';
+  $('rollTxt').textContent = 'roll';
+  $('rollNext').textContent = `next ${pad3r(rolls.length + 1)} ↻`;
+  const u = $('undoBtn'); u.disabled = i <= 0; $('undoN').textContent = i > 0 ? pad3r(i) : '—';
+  const f = $('redoBtn'); if (f) { f.disabled = i >= rolls.length - 1; }
+}
+function goLook(i, line) {
+  rollAt = i; resetAll(true); applyValues(rolls[i]); setMood(null); showLook(i);
+  if (line) say(line);
+}
+function roll() {
+  rolls.push(rollValues());
+  dismissCoach();
+  goLook(rolls.length - 1, `look ${pad3r(rolls.length)} · ${rolls[rolls.length - 1].name}。${pickOne(ROLL_LINES)}`);
+}
+$('rollBtn').addEventListener('click', roll);
+$('undoBtn').addEventListener('click', () => { if (rollAt > 0) goLook(rollAt - 1, `回到 look ${pad3r(rollAt)} · ${rolls[rollAt - 1].name}。`); });
+// 鍵盤：空白鍵擲骰子（焦點不在輸入框時）
+addEventListener('keydown', e => {
+  if (e.key !== ' ' || e.repeat) return;
+  const t = e.target, tag = t && t.tagName;
+  if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'A' || tag === 'LABEL' || (t && t.isContentEditable)) return;
+  e.preventDefault(); roll();
+});
+// 第一次來的提示卡：擲過一次或按 × 就收起來，之後不再出現
+function dismissCoach() { const c = $('coach'); if (!c.hidden) { c.hidden = true; store('coach', '1'); } }
+$('coachX').addEventListener('click', dismissCoach);
+if (recall('coach') === '1') $('coach').hidden = true;
+showLook(-1);
+
+// 畫面比例：自動（跟素材）或四種固定格式
+chipGroup('aspect', 'aspect', () => { setSize(); });
+
+/* ---------- 跳段：頂列的藥丸捲到控制卡對應的段落 ---------- */
+const jump = $('jump'), groups = ['g0', 'gfx', 'g1', 'g2', 'g3'].map(id => $(id));
+jump.addEventListener('click', e => {
+  const b = e.target.closest('button[data-go]'); if (!b) return;
+  if (app.classList.contains('closed')) setClosed(false);
+  $(b.dataset.go).scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+});
+function syncJump() {
+  const panel = $('panel'), isPage = innerWidth <= 760;
+  const top = isPage ? scrollY + 70 : panel.scrollTop + 60;
+  let cur = groups[0];
+  for (const g of groups) { const y = isPage ? g.offsetTop + panel.offsetTop : g.offsetTop; if (y <= top) cur = g; }
+  jump.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.go === cur.id));
+}
+$('panel').addEventListener('scroll', syncJump, { passive: true });
+addEventListener('scroll', syncJump, { passive: true });
+syncJump();
+
+
+/* ---------- 面板：收合、換邊（只記在這台瀏覽器） ---------- */
+const app = $('app');
+function store(k, v) { try { localStorage.setItem('thermal.' + k, v); } catch (e) {} }
+function recall(k) { try { return localStorage.getItem('thermal.' + k); } catch (e) { return null; } }
+// 簡單 = 只有骰子，控制卡收起來；進階 = 控制卡打開、頂列多一排跳段
+function setClosed(on) {
+  app.classList.toggle('closed', on); store('closed', on ? '1' : '0');
+  $('easyBtn').classList.toggle('on', on); $('easyBtn').setAttribute('aria-pressed', on);
+  $('proBtn').classList.toggle('on', !on); $('proBtn').setAttribute('aria-pressed', !on);
+  $('jump').hidden = on;
+  if (!on) requestAnimationFrame(syncJump);
+}
+$('closeBtn').addEventListener('click', () => { setClosed(true); $('easyBtn').focus(); });
+$('easyBtn').addEventListener('click', () => setClosed(true));
+$('proBtn').addEventListener('click', () => { setClosed(false); if (innerWidth <= 760) $('panel').scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' }); });
+setClosed(recall('closed') !== '0'); // 第一次來預設是簡單模式
+// 用 label 當上傳鈕：鍵盤按 Enter 或空白鍵也能開檔案視窗
+for (const id of ['fileLbl']) {
+  $(id).addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('fileIn').click(); } });
+}
+
+$('demoBtn').addEventListener('click', () => { $('fileIn').value = ''; setSource({ kind: 'demo', el: demo, name: '示範素材：蝴蝶' }); say(''); });
+$('fileIn').addEventListener('change', e => loadFile(e.target.files[0]));
+$('playBtn').addEventListener('click', () => setRunning(!running));
+
+let dragDepth = 0;
+const hasFiles = e => Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files');
+addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; $('drop').hidden = false; });
+addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('drop').hidden = true; });
+addEventListener('drop', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; $('drop').hidden = true;
+  loadFile(e.dataTransfer.files[0]);
+});
+
+/* ---------- saving ---------- */
+async function getDownloads() {
+  const cl = window.claude;
+  if (cl && typeof cl.use === 'function') { try { return await cl.use('downloads'); } catch (e) { return null; } }
+  // 獨立網站（例如 GitHub Pages）沒有 Claude 的存檔視窗：直接交給瀏覽器下載
+  return {
+    save: async ({ filename, data }) => {
+      const url = URL.createObjectURL(data), a = document.createElement('a');
+      a.href = url; a.download = filename; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    }
+  };
+}
+function stamp() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+function saveError(e) {
+  const code = e && e.code;
+  if (code === 'declined') say('這次沒有存檔。');
+  else if (code === 'rate_limited') say('存檔視窗還開著，處理完再按一次。', true);
+  else if (code === 'too_large') say('檔案太大，存不下來。改用 PNG 試試。', true);
+  else say('這個檢視不能存檔。', true);
+}
+$('pngBtn').addEventListener('click', async () => {
+  const dl = await getDownloads();
+  if (!dl) { say('這個檢視不能存檔。', true); return; }
+  const blob = await new Promise(r => out.toBlob(r, 'image/png'));
+  if (!blob) { say('截圖沒成功，再按一次。', true); return; }
+  try { await dl.save({ filename: `thermal-tracking-${stamp()}.png`, data: blob }); say('PNG 存好了。'); }
+  catch (e) { saveError(e); }
+});
+$('recBtn').addEventListener('click', async () => {
+  const btn = $('recBtn');
+  if (btn.getAttribute('aria-pressed') === 'true') return;
+  const dl = await getDownloads();
+  if (!dl) { say('這個檢視不能存檔。', true); return; }
+  if (!out.captureStream || !window.MediaRecorder) { say('這個瀏覽器不支援錄影，先用「存成 PNG」。', true); return; }
+  const types = [['video/mp4;codecs=avc1', 'mp4'], ['video/mp4', 'mp4'], ['video/webm;codecs=vp9', 'webm'], ['video/webm', 'webm']];
+  const pick = types.find(([m]) => MediaRecorder.isTypeSupported(m));
+  if (!pick) { say('這個瀏覽器不支援錄影，先用「存成 PNG」。', true); return; }
+  setRunning(true); autoPause = -1;
+  const rec = new MediaRecorder(out.captureStream(30), { mimeType: pick[0], videoBitsPerSecond: 8e6 });
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r => { rec.onstop = r; });
+  btn.setAttribute('aria-pressed', 'true'); $('pngBtn').disabled = true;
+  rec.start(250);
+  for (let s = 6; s > 0; s--) { btn.textContent = `錄影中 ${s}s`; await new Promise(r => setTimeout(r, 1000)); }
+  rec.stop(); await stopped;
+  btn.textContent = '錄 6 秒'; btn.setAttribute('aria-pressed', 'false'); $('pngBtn').disabled = false;
+  const blob = new Blob(chunks, { type: pick[0] });
+  try { await dl.save({ filename: `thermal-tracking-${stamp()}.${pick[1]}`, data: blob }); say('影片存好了。'); }
+  catch (e) { saveError(e); }
+});
+
+/* ---------- 懸停說明 ---------- */
+(() => {
+  // 段落標題的說明、提示文字、標題下的介紹，全部搬到對應元件的 data-tip
+  document.querySelectorAll('.g-head').forEach(g => { const p = g.querySelector('p'); if (p) { g.dataset.tip = p.textContent.trim(); p.remove(); } });
+  document.querySelectorAll('.hint').forEach(p => {
+    const t = (p.nextElementSibling && p.nextElementSibling.matches('.chips')) ? p.nextElementSibling : p.previousElementSibling;
+    if (t && !t.dataset.tip) t.dataset.tip = p.textContent.trim();
+    p.remove();
+  });
+  const bl = document.querySelector('.blurb'); if (bl) { document.querySelector('h1').dataset.tip = bl.textContent.trim(); bl.remove(); }
+  const cp = document.querySelector('.coach p'); if (cp) cp.remove();
+  const tip = document.createElement('div'); tip.className = 'tip'; tip.setAttribute('role', 'tooltip'); document.body.append(tip);
+  let timer = 0, cur = null;
+  const hide = () => { clearTimeout(timer); tip.classList.remove('on'); cur = null; };
+  const show = el => {
+    tip.textContent = el.dataset.tip; tip.classList.add('on');
+    const r = el.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    const x = Math.min(innerWidth - tw - 8, Math.max(8, r.left + r.width / 2 - tw / 2));
+    let y = r.bottom + 8; if (y + th > innerHeight - 8) y = Math.max(8, r.top - th - 8);
+    tip.style.transform = `translate(${x}px,${y}px)`;
+  };
+  const arm = el => { if (el === cur) return; hide(); if (!el || !el.dataset.tip) return; cur = el; timer = setTimeout(() => show(el), 800); };
+  document.addEventListener('pointerover', e => { if (e.pointerType === 'mouse') arm(e.target.closest('[data-tip]')); });
+  document.addEventListener('focusin', e => arm(e.target.closest('[data-tip]')));
+  document.addEventListener('pointerdown', hide);
+  addEventListener('scroll', hide, true);
+})();
+
+/* ---------- start ---------- */
+applyPalette(P.palette);
+setSize();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
