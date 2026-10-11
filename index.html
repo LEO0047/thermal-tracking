@@ -67,12 +67,21 @@ button,label.btn{font-family:inherit}
 .jump button:hover{color:var(--ink);background:var(--well)}
 .jump button.on{color:var(--on-ink);background:var(--ink)}
 
-/* 主舞台：左欄是一條直線（標題在上、操作在下，底部對齊海報底部），右邊是海報 */
-.hero{flex:1;min-height:0;display:grid;grid-template-columns:clamp(260px,30%,430px) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);
-  grid-template-areas:"top view" "ctrl view";column-gap:32px;padding:10px var(--edge) var(--edge)}
+/* 主舞台：左欄是一條直線（標題、心情清單在上，操作在下，底部對齊海報底部），右邊是海報 */
+.hero{flex:1;min-height:0;display:grid;grid-template-columns:clamp(260px,30%,430px) minmax(0,1fr);grid-template-rows:auto minmax(0,auto) 1fr;
+  grid-template-areas:"top view" "mood view" "ctrl view";column-gap:32px;padding:10px var(--edge) var(--edge)}
 .lede{display:contents}
 .lede-top{grid-area:top;container-type:inline-size;display:grid;gap:18px;align-content:start;padding-top:14px;min-width:0}
 .lede-ctrl{grid-area:ctrl;align-self:end;display:grid;gap:14px;padding:18px 0 var(--cap);min-width:0}
+/* 心情清單：緊貼大標題下面，簡單模式也看得到；直接畫在牆上，不套卡片底色；高度不夠就在清單裡捲 */
+.lede-mood{grid-area:mood;min-height:0;min-width:0;overflow-y:auto;scrollbar-width:none;display:grid;gap:8px;align-content:start;padding-top:26px}
+.lede-mood::-webkit-scrollbar{display:none}
+/* 下面還有沒露出來的心情時，底部淡出，看得出可以往下捲 */
+.lede-mood.more{-webkit-mask:linear-gradient(#000 calc(100% - 44px),transparent);mask:linear-gradient(#000 calc(100% - 44px),transparent)}
+.lede-mood .moods{gap:0;background:transparent;border:0;border-top:1px solid var(--line)}
+.lede-mood .mood{background:transparent;border-bottom:1px solid var(--line);padding:9px 4px}
+.lede-mood .mood:hover{background:var(--well)}
+.lede-mood .mood.on{background:var(--ink)}
 .eyebrow{margin:0;font:400 .66rem/1.5 var(--mono);color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase}
 .eyebrow b{font-weight:400;color:var(--pop)}
 /* 大標題：Unbounded 全大寫，第二行細一階；字級跟著左欄寬度走，剛好撐滿 */
@@ -294,7 +303,8 @@ input[type=range]::-moz-range-thumb{width:6px;height:14px;background:var(--ink);
 
 /* 中等寬度：標題橫向一條放最上面；下面左邊海報、右邊操作欄 */
 @media (max-width:1100px){
-  .hero{grid-template-columns:minmax(0,1fr) 300px;grid-template-areas:"top top" "view ctrl";row-gap:10px;column-gap:24px}
+  .hero{grid-template-columns:minmax(0,1fr) 300px;grid-template-areas:"top top" "view mood" "view ctrl";row-gap:10px;column-gap:24px}
+  .lede-mood{padding-top:4px}
   .lede-top{container-type:normal;grid-template-columns:auto minmax(0,1fr);align-items:end;gap:6px 28px;padding-top:4px}
   .lede-top .eyebrow{grid-column:1 / -1}
   h1{font-size:clamp(30px,4.4vw,50px)}
@@ -312,6 +322,7 @@ input[type=range]::-moz-range-thumb{width:6px;height:14px;background:var(--ink);
   .lede-top{order:1;container-type:inline-size;grid-template-columns:1fr;gap:12px}
   .view{order:2;height:62svh;min-height:360px}
   .lede-ctrl{order:3;align-self:stretch;padding:0 0 18px}
+  .lede-mood{order:4;overflow:visible;padding:0 0 18px}
   h1{font-size:min(84px,15.4cqi)}
   h1 br{display:inline}
   h1 em{margin-left:0}
@@ -337,7 +348,6 @@ input[type=range]::-moz-range-thumb{width:6px;height:14px;background:var(--ink);
       <p class="status" id="status" role="status"></p>
       <div class="navs">
         <nav class="jump" id="jump" aria-label="跳到" hidden>
-          <button type="button" data-go="g0">mood</button>
           <button type="button" data-go="gfx">fx</button>
           <button type="button" data-go="g1">color</button>
           <button type="button" data-go="g2">trail</button>
@@ -356,6 +366,10 @@ input[type=range]::-moz-range-thumb{width:6px;height:14px;background:var(--ink);
           <p class="eyebrow">no.003 <b>·</b> live in your browser</p>
           <h1>Thermal<br><em>Tracking</em></h1>
           <p class="blurb">把任何影片或照片，變成熱像儀眼裡的樣子：<b>假色、拖尾、光暈</b>，再加一層會自己找主體的追蹤框。按下面的骰子一組一組擲；想自己動手，切到進階。</p>
+        </div>
+        <div class="lede-mood">
+          <span class="fk">mood</span>
+          <div class="moods" id="moods"></div>
         </div>
         <div class="lede-ctrl">
           <div class="dock" id="dock">
@@ -418,23 +432,6 @@ input[type=range]::-moz-range-thumb{width:6px;height:14px;background:var(--ink);
       </div>
     </div>
 
-    <div class="group" id="g0">
-      <div class="g-head">
-        <span class="n">00</span>
-        <div><h2>mood</h2><p>一鍵換整組參數，再往下慢慢微調。</p></div>
-      </div>
-      <div class="moods" id="moods"></div>
-      <div class="field">
-        <span class="fk">background</span>
-        <div class="chips" id="bgMode">
-          <button class="chip on" type="button" data-v="auto" aria-pressed="true">自動<span class="aux" id="bgAuto"></span></button>
-          <button class="chip" type="button" data-v="dark" aria-pressed="false">黑底</button>
-          <button class="chip" type="button" data-v="light" aria-pressed="false">白底</button>
-        </div>
-        <p class="hint">白底會把亮暗反過來：背景沉下去，杯緣、反光和陰影變成發光主體，追蹤也改抓這些地方。</p>
-      </div>
-    </div>
-
     <div class="group" id="gfx">
       <div class="g-head">
         <span class="n">01</span>
@@ -458,6 +455,16 @@ input[type=range]::-moz-range-thumb{width:6px;height:14px;background:var(--ink);
         <span class="n">02</span>
         <div><h2>color</h2><p>先把畫面變成只有亮暗，再把亮暗換成一組假色，跟熱像儀同一招。換配色，整面牆也跟著換。</p></div>
         <label class="tg" title="開關這一層"><input type="checkbox" id="on1" checked aria-label="開關熱感配色"><span></span></label>
+      </div>
+      <!-- 素材底色放在這一層的開關外面：關掉熱感配色時，黑底／白底照樣能切 -->
+      <div class="field">
+        <span class="fk">background</span>
+        <div class="chips" id="bgMode">
+          <button class="chip on" type="button" data-v="auto" aria-pressed="true">自動<span class="aux" id="bgAuto"></span></button>
+          <button class="chip" type="button" data-v="dark" aria-pressed="false">黑底</button>
+          <button class="chip" type="button" data-v="light" aria-pressed="false">白底</button>
+        </div>
+        <p class="hint">白底會把亮暗反過來：背景沉下去，杯緣、反光和陰影變成發光主體，追蹤也改抓這些地方。</p>
       </div>
       <div class="ctl">
         <div class="chips" id="palette"></div>
@@ -1688,6 +1695,11 @@ for (const [key, m] of Object.entries(MOODS)) {
   const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = m.name; b.dataset.tip = m.zh;
   b.append(i, nm, sw); moodBox.append(b);
 }
+// 左欄高度不夠時清單會捲：還有沒露出來的就淡出底部，捲到底才拿掉
+const moodWrap = moodBox.parentElement;
+const syncMoodFade = () => moodWrap.classList.toggle('more', moodWrap.scrollTop + moodWrap.clientHeight < moodWrap.scrollHeight - 2);
+moodWrap.addEventListener('scroll', syncMoodFade, { passive: true });
+{ const ro = new ResizeObserver(syncMoodFade); ro.observe(moodWrap); ro.observe(moodBox); } // 外框變矮、清單變高（字型載入後）都要重算
 function setMood(key) {
   curMood = key;
   moodBox.querySelectorAll('.mood').forEach(b => b.classList.toggle('on', b.dataset.v === key));
@@ -1715,7 +1727,7 @@ function applyValues(v) {
 moodBox.addEventListener('click', e => {
   const b = e.target.closest('.mood'); if (!b) return;
   const key = b.dataset.v, m = MOODS[key];
-  resetAll(true); applyValues(m); setMood(key);
+  resetAll(true); applyValues(m); setMood(key); dismissCoach();
   say(`MOOD · ${m.name}`);
 });
 // 預設的樣子：打開頁面、按「恢復預設」都回到這一組。心情和骰子照舊從中性的 DEFAULTS 起算，不受影響
@@ -1786,7 +1798,7 @@ showLook(-1);
 chipGroup('aspect', 'aspect', () => { setSize(); });
 
 /* ---------- 跳段：頂列的藥丸捲到控制卡對應的段落 ---------- */
-const jump = $('jump'), groups = ['g0', 'gfx', 'g1', 'g2', 'g3'].map(id => $(id));
+const jump = $('jump'), groups = ['gfx', 'g1', 'g2', 'g3'].map(id => $(id));
 jump.addEventListener('click', e => {
   const b = e.target.closest('button[data-go]'); if (!b) return;
   if (app.classList.contains('closed')) setClosed(false);
