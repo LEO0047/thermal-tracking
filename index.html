@@ -1866,7 +1866,7 @@ $('pngBtn').addEventListener('click', async () => {
   if (!dl) { say('這個檢視不能存檔。', true); return; }
   const blob = await new Promise(r => out.toBlob(r, 'image/png'));
   if (!blob) { say('截圖沒成功，再按一次。', true); return; }
-  try { await dl.save({ filename: `thermal-tracking-${stamp()}.png`, data: blob }); say('PNG 存好了。'); }
+  try { await dl.save({ filename: `Thermal Tracking - ${stamp()}.png`, data: blob }); say('PNG 存好了。'); }
   catch (e) { saveError(e); }
 });
 $('recBtn').addEventListener('click', async () => {
@@ -1889,7 +1889,7 @@ $('recBtn').addEventListener('click', async () => {
   rec.stop(); await stopped;
   btn.textContent = '錄 6 秒'; btn.setAttribute('aria-pressed', 'false'); $('pngBtn').disabled = false;
   const blob = new Blob(chunks, { type: pick[0] });
-  try { await dl.save({ filename: `thermal-tracking-${stamp()}.${pick[1]}`, data: blob }); say('影片存好了。'); }
+  try { await dl.save({ filename: `Thermal Tracking - ${stamp()}.${pick[1]}`, data: blob }); say('影片存好了。'); }
   catch (e) { saveError(e); }
 });
 
