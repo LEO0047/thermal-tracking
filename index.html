@@ -169,7 +169,8 @@ h1 em{font-style:normal;font-weight:300;color:var(--ink-2)}
 .look{display:grid;gap:3px;align-content:center;padding:0 2px;min-width:0}
 .look .fk b{color:var(--ink-2)}
 .look > b{font:300 .86rem/1.35 var(--tech);letter-spacing:.03em;text-transform:uppercase;color:var(--ink);overflow-wrap:anywhere}
-.coach{position:absolute;left:0;bottom:calc(100% + 14px);width:min(320px,calc(100vw - 32px));display:grid;gap:6px;padding:14px 38px 14px 16px;background:var(--card-solid);color:var(--ink);border:1px solid var(--line-2);box-shadow:0 20px 50px rgba(0,0,0,.35);z-index:5}
+/* 提示卡排在骰子正上方、佔自己的一列，不浮在別的東西上；它出現時心情清單會讓出空間（太矮就捲） */
+.coach{position:relative;grid-column:1 / -1;justify-self:start;width:min(320px,100%);margin-bottom:6px;display:grid;gap:6px;padding:14px 38px 14px 16px;background:var(--card-solid);color:var(--ink);border:1px solid var(--line-2);box-shadow:0 20px 50px rgba(0,0,0,.35);z-index:5}
 .coach::after{content:"";position:absolute;left:170px;bottom:-7px;width:12px;height:12px;background:var(--card-solid);border-right:1px solid var(--line-2);border-bottom:1px solid var(--line-2);transform:translateX(-50%) rotate(45deg)}
 .coach strong{font:600 .95rem/1.2 var(--tech);letter-spacing:.04em;text-transform:uppercase}
 .coach p{margin:0;font-size:.78rem;line-height:1.6;color:var(--ink-2)}
