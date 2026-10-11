@@ -1641,7 +1641,7 @@ function resetAll(quiet) {
   if (quiet !== true) say('全部參數回到預設值，素材沒有換。');
   setMood(quiet === true ? curMood : null);
 }
-$('resetBtn').addEventListener('click', () => resetAll(false));
+$('resetBtn').addEventListener('click', () => { goHome(); say(`全部參數回到預設的 ${MOODS[HOME].name}，素材沒有換。`); });
 
 /* ---------- 心情：一鍵套一整組參數 ---------- */
 // 每一組都是「配色 + 拖尾 + 幾條滑桿 + 要疊的效果」。值的名字就是控制項的 id。
@@ -1718,6 +1718,9 @@ moodBox.addEventListener('click', e => {
   resetAll(true); applyValues(m); setMood(key);
   say(`MOOD · ${m.name}`);
 });
+// 預設的樣子：打開頁面、按「恢復預設」都回到這一組。心情和骰子照舊從中性的 DEFAULTS 起算，不受影響
+const HOME = 'glitch';
+function goHome() { resetAll(true); applyValues(MOODS[HOME]); setMood(HOME); }
 /* ---------- 骰子：每擲一次，整組參數從預設值重骰，所以不會越疊越亂 ---------- */
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pickOne = arr => arr[Math.floor(Math.random() * arr.length)];
@@ -1924,6 +1927,10 @@ $('recBtn').addEventListener('click', async () => {
 /* ---------- start ---------- */
 applyPalette(P.palette);
 setSize();
+// 一打開就是預設那一組：牆色直接換好，不從藍色慢慢轉過去；拖曳控制也先不閃出來
+document.documentElement.style.setProperty('--field-t', '0s');
+goHome(); handleUntil = 0;
+requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.style.removeProperty('--field-t')));
 requestAnimationFrame(loop);
 })();
 </script>
